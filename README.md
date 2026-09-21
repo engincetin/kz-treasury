@@ -61,6 +61,7 @@ Emirler: `GET /api/orders` · `POST /api/orders {side, qty_mg, ccy}` (müşteri 
 KZ kaydı: `GET /api/record` · `POST /api/record/snapshot` · `POST /api/record/resolve {explanation}` · `GET /api/record/statement` · `GET /api/documents/:id`.
 Olaylar: `POST /api/events` (rafineri çağırır, HMAC) · `GET /api/events`.
 Kasa talimatları (K4): `GET /api/vault` · `GET /api/vault/:ref` · `POST /api/vault {type, qty_mg, reason}` (elle, gerekçeli) · `POST /api/vault/:ref/retry` (tavan yüzünden duran talep) · `POST /api/vault/flush-mints` · `GET /api/vault/statement` (rafinerinin günlük kasa ekstresi).
+Mahsuplaşma (K8): `GET /api/settlements` · `POST /api/settlements` · `POST /api/settlements/:id/reconcile|gold-leg|pay`.
 Teslimat ve rafinasyon (K6, K7): `GET /api/fulfilment` · `GET /api/catalog` · `POST /api/deliveries` · `POST /api/deliveries/:id/approve|cancel` · `POST /api/refining` · `POST /api/refining/:id/approve|cancel` · `PUT /api/fulfilment-params {burnMoment}`.
 Hazine alım satımı (K5): `GET /api/treasury` · `POST /api/treasury {side, qty_mg, ccy, maker}` · `POST /api/treasury/:id/approve {approver}` · `POST /api/treasury/:id/cancel` · `GET /api/treasury-approvals?qty_mg=` · `PUT /api/stock-params`.
 
@@ -72,5 +73,5 @@ Hazine alım satımı (K5): `GET /api/treasury` · `POST /api/treasury {side, qt
 | 2 ✓ | emirler (stoktan alış / satış), bakiye bilgisi ↔ KZ kaydı eşleşmesi, RECONCILE çözümü, cevapsız emir ve geç fill kararı, olay alımı | K2, K3 |
 | 3 ✓ | kasa talimatları + fişler + mint / burn eşlemesi, büyük alış / satış, hazine alım satımı (maker-checker) | K4, K5 |
 | 4 ✓ | fiziksel teslimat (emanet, burn anı), rafinasyon (katalog, teklif, onay) | K6, K7 |
-| 5 | mahsuplaşma (kesim saati otomatik, talep iki yönlü), parametreler | K8, K9 |
+| 5 ✓ | mahsuplaşma (mutabakat, altın ve para bacağı), parametreler ve ikinci onay | K8, K9 |
 | 6 | demo senaryoları S0..S9 (KZ simülatörü), kullanım kılavuzu, teslim paketi | |

@@ -9,6 +9,8 @@ import { K4Vault } from "./pages/K4Vault.tsx";
 import { K5Treasury } from "./pages/K5Treasury.tsx";
 import { K6Delivery } from "./pages/K6Delivery.tsx";
 import { K7Refining } from "./pages/K7Refining.tsx";
+import { K8Settlement } from "./pages/K8Settlement.tsx";
+import { K9Params } from "./pages/K9Params.tsx";
 
 const SCREENS = [
   { code: "K1", path: "/", title: "Bağlantı ve fiyat", sprint: 1 },
@@ -18,8 +20,8 @@ const SCREENS = [
   { code: "K5", path: "/hazine", title: "Hazine alım satımı", sprint: 3, done: true },
   { code: "K6", path: "/teslimat", title: "Fiziksel teslimat", sprint: 4, done: true },
   { code: "K7", path: "/rafinasyon", title: "Rafinasyon", sprint: 4, done: true },
-  { code: "K8", path: "/mahsuplasma", title: "Mahsuplaşma", sprint: 5 },
-  { code: "K9", path: "/parametreler", title: "Parametreler", sprint: 5 },
+  { code: "K8", path: "/mahsuplasma", title: "Mahsuplaşma", sprint: 5, done: true },
+  { code: "K9", path: "/parametreler", title: "Parametreler", sprint: 5, done: true },
 ];
 
 export function App() {
@@ -45,8 +47,8 @@ export function App() {
           <Route path="/hazine" element={<K5Treasury live={live} />} />
           <Route path="/teslimat" element={<K6Delivery live={live} />} />
           <Route path="/rafinasyon" element={<K7Refining live={live} />} />
-          <Route path="/mahsuplasma" element={<Placeholder code="K8" title="Mahsuplaşma" sprint={5} text="Pencereler (kesim saati otomatik, talep iki yönlü), KZ ekstresi ↔ AMR ekstresi karşılaştırma, mutabakat onayı, altın bacağı izleme, ödeme talimatı ve bildirimi." />} />
-          <Route path="/parametreler" element={<Placeholder code="K9" title="Parametreler" sprint={5} text="Taban / tavan / hedef, mint politikası, slippage aralığı, emir zaman sınırı, bayatlık eşiği, cari hesap limitleri, pencere sayısı, burn anı, onay matrisi." />} />
+          <Route path="/mahsuplasma" element={<K8Settlement live={live} />} />
+          <Route path="/parametreler" element={<K9Params live={live} />} />
         </Routes>
       </main>
     </div>

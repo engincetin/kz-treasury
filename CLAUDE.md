@@ -49,6 +49,13 @@ Bu repo Kanzasset (KZ) tarafındaki hazine çekirdeğidir. Rafineri tarafı `amr
 - Teslimatta Kanzasset marj ve komisyon almaz, lojistik masrafı müşteriden aynen alınır; rafinasyonda müşteri fiyatı marj ve komisyon dahildir, rafineriye yalnız bedel ödenir.
 - Katalog rafineriden çekilir, `catalog.updated` olayında kendiliğinden yenilenir.
 
+## Mahsuplaşma (settlement.ts)
+
+- Rafineri pencereyi açtığında (`settlement.opened`) mutabakat kendiliğinden çalışır: rafineri ekstresi KZ kaydıyla karşılaştırılır.
+- Eşitse rafinerinin ekstre özeti onaylanır (RECONCILED); farklıysa kendi toplamlarımız gönderilir ve pencere MISMATCH olur.
+- Altın bacağı kasa talimatları masasına devredilir (`SETTLEMENT` tetikli); kabul edilince `markGoldLegDone` çağrılır.
+- Para bacağında borçluysak ödeme YALNIZ şirket banka hesabından yapılır (K5); alacaklıysak ödeme alındı deriz. Ödeme cari hesabın para tarafını kapatır.
+
 ## Sprint durumu
 
-Sprint 1, 2, 3 ve 4 tamam: soket istemcisi, fiyatlama, durdur / başlat, bildirimler, SSE, REST istemcisi (HMAC), emir masası, KZ kaydı ve eşleşme, olay alımı, kasa talimatları ve mint / burn eşlemesi, büyük alış / satış, hazine alım satımı, fiziksel teslimat ve rafinasyon; ekranlar K1, K2, K3, K4, K5, K6, K7. Sonraki: Sprint 5 (K8 mahsuplaşma, K9 parametreler). Plan `README.md` sonunda.
+Sprint 1'den 5'e tamam: soket istemcisi, fiyatlama, durdur / başlat, bildirimler, SSE, REST istemcisi (HMAC), emir masası, KZ kaydı ve eşleşme, olay alımı, kasa talimatları ve mint / burn eşlemesi, büyük alış / satış, hazine alım satımı, fiziksel teslimat ve rafinasyon, mahsuplaşma, parametreler; ekranlar K1'den K9'a hepsi. Sonraki: Sprint 6 (demo senaryoları, kılavuz, teslim paketi). Plan `README.md` sonunda.

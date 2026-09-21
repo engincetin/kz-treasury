@@ -24,6 +24,7 @@ import { DEFAULT_ORDER_PARAMS, OrderDesk, type CustomerOrder, type OrderParams }
 import { DEFAULT_STOCK_PARAMS, VaultDesk, type StockParams, type VaultInstruction } from "./vault.ts";
 import { TreasuryDesk, requiredApprovals, type TreasuryRequest } from "./treasury.ts";
 import { DEFAULT_FULFILMENT, FulfilmentDesk, type FulfilmentParams, type KzDelivery, type KzRefining } from "./fulfilment.ts";
+import { KzSettlementDesk, type KzSettlement } from "./settlement.ts";
 import type { Catalog } from "@amr/contract";
 
 const PORT = Number(process.env.PORT ?? 5000);
@@ -45,11 +46,12 @@ interface State {
   pricing: PricingParams; orderParams: OrderParams; market: { manualStop: boolean; manualReason: string | null };
   vault: VaultInstruction[]; treasury: TreasuryRequest[]; stock: StockParams;
   deliveries: KzDelivery[]; refinings: KzRefining[]; catalog: Catalog | null; fulfilment: FulfilmentParams;
+  settlements: KzSettlement[];
 }
 const store = new JsonStore<State>(resolve(DATA_DIR, "kz-state.json"), () => ({
   record: emptyRecord(OPENING_MG), orders: [], notices: [], noticeId: 0, events: [], pricing: { ...DEFAULT_PRICING }, orderParams: { ...DEFAULT_ORDER_PARAMS }, market: { manualStop: false, manualReason: null },
   vault: [], treasury: [], stock: { ...DEFAULT_STOCK_PARAMS, targetMg: OPENING_MG || DEFAULT_STOCK_PARAMS.targetMg },
-  deliveries: [], refinings: [], catalog: null, fulfilment: { ...DEFAULT_FULFILMENT },
+  deliveries: [], refinings: [], catalog: null, fulfilment: { ...DEFAULT_FULFILMENT }, settlements: [],
 }));
 const S = store.data;
 const ticks: { seq: number; ts: string; tradable: boolean; prices: unknown }[] = [];
@@ -85,8 +87,8 @@ const vault = new VaultDesk({
   params: () => S.stock,
   notify,
   onChange: () => { S.vault = vault.instructions; changed(); },
-  onMinted: (inst) => { desk.deliverPending(inst); treasury.onMinted(inst); },
-  onOutAccepted: (inst) => { treasury.onOutAccepted(inst); },
+  onMinted: (inst) => { desk.deliverPending(inst); treasury.onMinted(inst); if (inst.trigger === "SETTLEMENT" && inst.related_id) void settlement.markGoldLegDone(inst.related_id, inst.ref); },
+  onOutAccepted: (inst) => { treasury.onOutAccepted(inst); if (inst.trigger === "SETTLEMENT" && inst.related_id) void settlement.markGoldLegDone(inst.related_id, inst.ref); },
 }, S.vault);
 
 const desk = new OrderDesk({
@@ -125,6 +127,12 @@ const fulfilment = new FulfilmentDesk({
   onChange: () => { S.deliveries = fulfilment.deliveries; S.refinings = fulfilment.refinings; S.catalog = fulfilment.catalog; changed(); },
 }, { deliveries: S.deliveries, refinings: S.refinings, catalog: S.catalog });
 
+// Mahsuplaşma (K8): pencere, mutabakat, altın ve para bacağı.
+const settlement = new KzSettlementDesk({
+  amr, record: () => S.record, vault: () => vault, notify,
+  onChange: () => { S.settlements = settlement.windows; changed(); },
+}, S.settlements);
+
 const status = () => ({
   socket: { ...client.state },
   rest: { url: AMR_HTTP_URL, events_received: S.events.length, last_event_ts: S.events[0]?.received_ts ?? null },
@@ -151,6 +159,7 @@ const status = () => ({
   },
   treasury: { pending: treasury.pending().length },
   awaitingDelivery: desk.awaitingDelivery().length,
+  settlement: { open: settlement.open()?.settlement_id ?? null, status: settlement.open()?.status ?? null, windows: settlement.windows.length },
   fulfilment: {
     deliveries_open: fulfilment.openDeliveries().length,
     refinings_open: fulfilment.openRefinings().length,
@@ -323,6 +332,22 @@ app.post<{ Params: { id: string }; Body: { reason?: string } }>("/api/refining/:
 });
 app.put<{ Body: Partial<FulfilmentParams> }>("/api/fulfilment-params", async (req) => { Object.assign(S.fulfilment, req.body ?? {}); changed(); return S.fulfilment; });
 
+// ---- K8: mahsuplaşma ----
+app.get("/api/settlements", async () => ({ items: settlement.list(), open: settlement.open() ?? null, record: S.record }));
+app.post<{ Body: { reason?: string; trigger?: string } }>("/api/settlements", async (req, reply) => {
+  try { return await settlement.request(req.body?.trigger ?? "REQUEST_KZ", req.body?.reason?.trim()); }
+  catch (e) { return reply.code(502).send({ error: (e as Error).message }); }
+});
+app.post<{ Params: { id: string } }>("/api/settlements/:id/reconcile", async (req, reply) => {
+  try { return await settlement.reconcile(req.params.id); } catch (e) { return reply.code(502).send({ error: (e as Error).message }); }
+});
+app.post<{ Params: { id: string } }>("/api/settlements/:id/gold-leg", async (req, reply) => {
+  try { return await settlement.goldLeg(req.params.id); } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+});
+app.post<{ Params: { id: string }; Body: { ccy?: string } }>("/api/settlements/:id/pay", async (req, reply) => {
+  try { return await settlement.pay(req.params.id, req.body?.ccy ?? "USD"); } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+});
+
 // ---- K2: rafineri hesapları ----
 app.get("/api/record", async () => ({ record: S.record, checks: checks(S.record) }));
 app.post("/api/record/snapshot", async (req, reply) => {
@@ -408,7 +433,9 @@ async function handleEvent(ev: EventEnvelope): Promise<string> {
     }
     case "price.halt": return `yayın durdu: ${d?.reason ?? ""}`;
     case "price.resume": return "yayın açıldı";
-    case "settlement.requested": notify("settlement.requested", "Rafineri mahsuplaşma talep etti", d?.reason ?? ""); return `mahsuplaşma talebi (${d?.trigger ?? ""})`;
+    case "settlement.requested": case "settlement.opened": case "settlement.statement": case "settlement.reconciled":
+    case "settlement.mismatch": case "settlement.payment_notice": case "settlement.payment_received": case "settlement.settled":
+      return settlement.onEvent(ev.type, d);
     case "account.reconcile": notify("account.reconcile", "Rafineri uyuşmazlık bildirdi", JSON.stringify(d)); return "account.reconcile";
     default: {
       if (ev.account) { compare(S.record, ev.account as Account); }

@@ -86,6 +86,15 @@ export interface FulfilmentView {
   deliveries: KzDelivery[]; refinings: KzRefining[]; catalog: Catalog | null;
   awaiting_approval: number; burn_moment: "DELIVERED" | "SHIPPED"; escrow_mg: number; checks: Checks;
 }
+export interface KzSettlement {
+  settlement_id: string; trigger: string; status: string; window_from: string; window_to: string;
+  amr_gold_mg?: number; amr_money?: { ccy: string; cents: number }[];
+  kz_gold_mg?: number; kz_money?: { ccy: string; cents: number }[];
+  diffs?: { field: string; amr: string; kz: string }[];
+  gold_leg?: { direction: string; qty_mg: number; vault_ref?: string; done: boolean };
+  money_leg: { ccy: string; net_cents: number; direction: string; paid: boolean; bank_ref?: string }[];
+  doc_id?: string; created_ts: string; timeline: { ts: string; text: string }[];
+}
 export interface Status {
   socket: { url: string; connection: "DISCONNECTED" | "CONNECTING" | "AUTHENTICATING" | "SUBSCRIBED"; tradable: boolean; haltReason: string | null; stale: boolean; seq: number; lastMsgTs: string | null; lastTickTs: string | null; lastPrices: PriceLevel[] | null; reconnectAttempt: number; gaps: number; lastError: string | null };
   rest: { url: string; events_received: number; last_event_ts: string | null };
@@ -105,6 +114,7 @@ export interface Status {
   };
   treasury: { pending: number };
   awaitingDelivery: number;
+  settlement: { open: string | null; status: string | null; windows: number };
   fulfilment: { deliveries_open: number; refinings_open: number; awaiting_approval: number; burn_moment: "DELIVERED" | "SHIPPED"; catalog_version: number };
   ts: string;
 }
@@ -152,6 +162,12 @@ export const api = {
   refiningApprove: (id: string) => req<KzRefining>(`/api/refining/${encodeURIComponent(id)}/approve`, { method: "POST", body: "{}" }),
   refiningCancel: (id: string, reason: string) => req<KzRefining>(`/api/refining/${encodeURIComponent(id)}/cancel`, { method: "POST", body: JSON.stringify({ reason }) }),
   fulfilmentParams: (p: { burnMoment: "DELIVERED" | "SHIPPED" }) => req("/api/fulfilment-params", { method: "PUT", body: JSON.stringify(p) }),
+  // K8 mahsuplaşma
+  settlements: () => req<{ items: KzSettlement[]; open: KzSettlement | null; record: KzRecord }>("/api/settlements"),
+  settlementRequest: (reason?: string) => req<KzSettlement>("/api/settlements", { method: "POST", body: JSON.stringify({ trigger: "REQUEST_KZ", reason }) }),
+  settlementReconcile: (id: string) => req<KzSettlement>(`/api/settlements/${encodeURIComponent(id)}/reconcile`, { method: "POST", body: "{}" }),
+  settlementGoldLeg: (id: string) => req<KzSettlement>(`/api/settlements/${encodeURIComponent(id)}/gold-leg`, { method: "POST", body: "{}" }),
+  settlementPay: (id: string, ccy: string) => req<KzSettlement>(`/api/settlements/${encodeURIComponent(id)}/pay`, { method: "POST", body: JSON.stringify({ ccy }) }),
 };
 
 export interface VaultStatementDoc {
@@ -198,5 +214,7 @@ export const VAULT_STATUS_TR: Record<string, string> = { HOLD: "durdu", REQUESTE
 export const VAULT_TRIGGER_TR: Record<string, string> = { BIG_BUY: "büyük alış (07)", BIG_SELL: "büyük satış (08)", TREASURY_BUY: "hazine alımı (09)", TREASURY_SELL: "hazine satışı (09)", SETTLEMENT: "mahsuplaşma (12)", MANUAL: "elle" };
 export const TREASURY_STATUS_TR: Record<string, string> = { "ONAY_BEKLİYOR": "onay bekliyor", "GÖNDERİLDİ": "gönderildi", "ZİNCİR_SÜRÜYOR": "zincir sürüyor", TAMAM: "tamam", "REDDEDİLDİ": "reddedildi", "İPTAL": "iptal", HATA: "hata" };
 export const FLOW_TR: Record<string, string> = { STOK: "stoktan", "BÜYÜK_ALIŞ": "büyük alış (07)", "BÜYÜK_SATIŞ": "büyük satış (08)" };
+export const STL_STATUS_TR: Record<string, string> = { REQUESTED: "talep edildi", OPEN: "pencere açık", DRAFT: "ekstre taslağı", RECONCILED: "mutabakat sağlandı", MISMATCH: "fark var", PAYMENT_PENDING: "ödeme bekliyor", SETTLED: "kapandı" };
+export const STL_TRIGGER_TR: Record<string, string> = { CUTOFF: "kesim saati", REQUEST_KZ: "Kanzasset talebi", REQUEST_AMR: "rafineri talebi", LIMIT: "cari hesap limiti" };
 export const FUL_STATUS_TR: Record<string, string> = { TALEP: "talep hazırlandı", REQUESTED: "rafineride", QUOTED: "teklif geldi", APPROVED: "onaylandı", PREPARING: "hazırlanıyor", IN_PRODUCTION: "üretimde", READY: "hazır", SHIPPED: "taşıyıcıda", DELIVERED: "teslim edildi", CANCELLED: "iptal", FAILED: "teslim edilemedi", HATA: "hata" };
 export const FIELD_TR: Record<string, string> = { "vault.in_vault_mg": "kasada", "vault.placing_mg": "kasaya konuluyor", "vault.shipping_mg": "sevkiyatta", "current_account.gold_mg": "cari hesap altın (T)", "current_account.money.USD": "cari hesap USD", "current_account.money.EUR": "cari hesap EUR", "current_account.money.AED": "cari hesap AED" };

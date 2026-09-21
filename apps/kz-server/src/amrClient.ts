@@ -3,7 +3,7 @@
  * POST'ta Idempotency-Key. Gövde gönderildiği ham metinle imzalanır. Zaman aşımı çağıran belirler (emirde time_limit_ms).
  */
 import { createHmac } from "node:crypto";
-import { signingString, type Account, type Catalog, type CurrentAccountStatement, type Delivery, type Document, type OrderRequest, type OrderResponse, type Refining, type SessionStatus, type VaultRequest, type VaultStatement } from "@amr/contract";
+import { signingString, type Account, type Catalog, type CurrentAccountStatement, type Delivery, type Document, type OrderRequest, type OrderResponse, type Refining, type SessionStatus, type Settlement, type VaultRequest, type VaultStatement } from "@amr/contract";
 
 export class AmrTimeout extends Error { constructor(msg = "zaman aşımı") { super(msg); this.name = "AmrTimeout"; } }
 export class AmrHttpError extends Error { constructor(public status: number, public body: unknown) { super(`HTTP ${status}`); this.name = "AmrHttpError"; } }
@@ -64,4 +64,17 @@ export class AmrClient {
   refiningGet(id: string) { return this.request<Refining>("GET", `/v1/refining/${encodeURIComponent(id)}`); }
   refiningApprove(id: string, quote_id: string) { return this.request<Refining>("POST", `/v1/refining/${encodeURIComponent(id)}/approve`, { quote_id }, { idempotencyKey: `rfn-ap-${id}` }); }
   refiningCancel(id: string, reason: string) { return this.request<Refining>("POST", `/v1/refining/${encodeURIComponent(id)}/cancel`, { reason }, { idempotencyKey: `rfn-cx-${id}` }); }
+  /** Mahsuplaşma (12). */
+  settlementOpen(trigger: string, reason?: string) { return this.request<Settlement>("POST", "/v1/settlements", { trigger, reason }, { idempotencyKey: `stl-${trigger}-${Date.now()}` }); }
+  settlementGet(id: string) { return this.request<Settlement>("GET", `/v1/settlements/${encodeURIComponent(id)}`); }
+  settlementConfirm(id: string, statement_hash: string, gold_mg: number, money: { ccy: string; cents: number }[]) {
+    return this.request<Settlement>("POST", `/v1/settlements/${encodeURIComponent(id)}/confirm`, { statement_hash, gold_mg, money }, { idempotencyKey: `stl-cf-${id}` });
+  }
+  settlementPaymentNotice(id: string, ccy: string, amount_cents: number, direction: string, bank_ref: string) {
+    return this.request<Settlement>("POST", `/v1/settlements/${encodeURIComponent(id)}/payment-notice`, { ccy, amount_cents, direction, bank_ref }, { idempotencyKey: `stl-pn-${id}-${ccy}` });
+  }
+  settlementPaymentReceived(id: string, ccy: string, bank_ref?: string) {
+    return this.request<Settlement>("POST", `/v1/settlements/${encodeURIComponent(id)}/payment-received`, { ccy, bank_ref }, { idempotencyKey: `stl-pr-${id}-${ccy}` });
+  }
+  documentPdfUrl(id: string) { return `${this.baseUrl}/v1/documents/${encodeURIComponent(id)}/pdf`; }
 }
