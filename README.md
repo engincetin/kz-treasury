@@ -24,7 +24,8 @@ packages/contract   @kz/contract   amr-app'ten kopyalanan sözleşme (elle düze
 apps/kz-server      @kz/server     Fastify: soket istemcisi, fiyatlama, durum, bildirimler, SSE, statik web
 apps/kz-web         @kz/web        React 19 + Vite, hazine ekranları K1..K9
 scripts/contract-sync.sh           sözleşmeyi ../amr-app'ten kopyalar
-docs/                              KZ_AMR_Akislar, KZ_AMR_Sistemi (md + html)
+scripts/demo.mjs                   S0..S9 senaryoları (npm run demo)
+docs/                              KZ_AMR_Akislar, KZ_AMR_Sistemi (md + html), DEMO, KULLANIM_KILAVUZU, TEST_RAPORU, KARARLAR, ekranlar/
 ```
 
 ## Çalıştırma
@@ -39,6 +40,20 @@ npm run dev          # kz-server (5000) + kz-web (5001, Vite)
 Tarayıcı: `http://localhost:5001` (geliştirme) ya da `npm run build && npm start` sonrası `http://localhost:5000`.
 
 Test: `npm test`. Sözleşme güncelle: `npm run contract:sync` (amr-app yan klasörde `../amr-app` olmalı, başka yol için `scripts/contract-sync.sh <yol>`).
+
+## Tek komutla çalıştırma (Docker)
+
+İki repo yan yana dururken:
+
+```bash
+cd kz-treasury && docker compose up --build
+```
+
+Mock merkez, AMR uygulaması ve Kanzasset hazine çekirdeği birlikte kalkar. Kanzasset ekranları `http://localhost:5000`, rafineri ekranları `http://localhost:4000`. Açılış devirleri iki tarafta da 20 kg'dır (`VAULT_OPENING_MG` ve `KZ_OPENING_MG` eşit olmalı).
+
+Senaryoları koşturmak için (servisler ayaktayken): `npm run demo`.
+
+Docker olmadan, sunum için üç komut: `docs/DEMO.md` → "Sabah başlatma".
 
 ## Ortam değişkenleri
 
@@ -74,4 +89,4 @@ Hazine alım satımı (K5): `GET /api/treasury` · `POST /api/treasury {side, qt
 | 3 ✓ | kasa talimatları + fişler + mint / burn eşlemesi, büyük alış / satış, hazine alım satımı (maker-checker) | K4, K5 |
 | 4 ✓ | fiziksel teslimat (emanet, burn anı), rafinasyon (katalog, teklif, onay) | K6, K7 |
 | 5 ✓ | mahsuplaşma (mutabakat, altın ve para bacağı), parametreler ve ikinci onay | K8, K9 |
-| 6 | demo senaryoları S0..S9 (KZ simülatörü), kullanım kılavuzu, teslim paketi | |
+| 6 ✓ | demo senaryoları S0..S9 (KZ simülatörü), sunum senaryosu, kullanım kılavuzu, Docker, test raporu | |
