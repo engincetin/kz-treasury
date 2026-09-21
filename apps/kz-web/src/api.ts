@@ -17,7 +17,7 @@ export interface KzRecord {
   seq: number;
   vault: { in_vault_mg: number; placing_mg: number; shipping_mg: number };
   current_account: { gold_mg: number; money: { ccy: Ccy; cents: number }[] };
-  stock: { s_mg: number; k_mg: number; a_mg: number };
+  stock: { s_mg: number; k_mg: number; a_mg: number; e_mg?: number };
   match: "EŞİT" | "RECONCILE" | "BEKLİYOR";
   diffs: Diff[];
   blocked: { mint: boolean; vault_out: boolean };
@@ -25,7 +25,7 @@ export interface KzRecord {
   lastCompareTs: string | null;
   corrections: { ts: string; explanation: string; before: unknown; after: unknown }[];
 }
-export interface Checks { k1: { ok: boolean; text: string }; k2: { ok: boolean; text: string }; c_mg: number; v_mg: number }
+export interface Checks { k1: { ok: boolean; text: string }; k2: { ok: boolean; text: string }; c_mg: number; e_mg?: number; v_mg: number }
 export interface Fill { px: string; qty_mg: number; amount_cents: number; ccy: string; trade_ts: string }
 export interface RefineryOrder { order_id: string; client_order_id: string; status: string; fill?: Fill; reject_reason?: string; allocation_certificate?: { doc_id: string; url: string }; account?: Account; received_ts: string; decided_ts?: string; history?: { status: string; ts: string; note?: string }[] }
 export interface CustomerOrder {
@@ -66,6 +66,26 @@ export interface TreasuryRequest {
   target_before_mg: number; target_after_mg?: number; error?: string; created_ts: string; sent_ts?: string;
   timeline: { ts: string; text: string }[];
 }
+export interface CatalogItem { item_id: string; name: string; weight_mg: number; fineness: string; unit_price_cents: number; ccy: string; lead_time_days: number; active: boolean }
+export interface Catalog { version: number; items: CatalogItem[]; updated_ts: string }
+export interface KzDelivery {
+  id: string; kind: "DELIVERY"; customer_ref: string; qty_mg: number; address_ref: string; insured_party_ref: string;
+  delivery_id?: string; status: string;
+  quote?: { quote_id: string; carrier: string; amount_cents: number; ccy: string; valid_until: string; doc_id?: string };
+  customer_price_cents?: number; tracking_no?: string; burned: boolean; burn_tx?: string; escrowed: boolean;
+  created_ts: string; timeline: { ts: string; text: string }[];
+}
+export interface KzRefining {
+  id: string; kind: "REFINING"; customer_ref: string; items: { item_id: string; name: string; qty: number; weight_mg: number }[];
+  total_mg: number; address_ref: string; insured_party_ref: string; refining_id?: string; status: string;
+  quote?: { quote_id: string; product_cents: number; logistics_cents: number; ccy: string; lead_time_days: number; valid_until: string; doc_id?: string };
+  customer_price_cents?: number; tracking_no?: string; burned: boolean; burn_tx?: string; escrowed: boolean;
+  created_ts: string; timeline: { ts: string; text: string }[];
+}
+export interface FulfilmentView {
+  deliveries: KzDelivery[]; refinings: KzRefining[]; catalog: Catalog | null;
+  awaiting_approval: number; burn_moment: "DELIVERED" | "SHIPPED"; escrow_mg: number; checks: Checks;
+}
 export interface Status {
   socket: { url: string; connection: "DISCONNECTED" | "CONNECTING" | "AUTHENTICATING" | "SUBSCRIBED"; tradable: boolean; haltReason: string | null; stale: boolean; seq: number; lastMsgTs: string | null; lastTickTs: string | null; lastPrices: PriceLevel[] | null; reconnectAttempt: number; gaps: number; lastError: string | null };
   rest: { url: string; events_received: number; last_event_ts: string | null };
@@ -85,6 +105,7 @@ export interface Status {
   };
   treasury: { pending: number };
   awaitingDelivery: number;
+  fulfilment: { deliveries_open: number; refinings_open: number; awaiting_approval: number; burn_moment: "DELIVERED" | "SHIPPED"; catalog_version: number };
   ts: string;
 }
 export interface EventLog { event_id: string; type: string; ts: string; received_ts: string; seq?: number; summary: string }
@@ -121,6 +142,16 @@ export const api = {
   treasuryApprove: (id: string, approver: string) => req<TreasuryRequest>(`/api/treasury/${encodeURIComponent(id)}/approve`, { method: "POST", body: JSON.stringify({ approver }) }),
   treasuryCancel: (id: string, actor: string) => req<TreasuryRequest>(`/api/treasury/${encodeURIComponent(id)}/cancel`, { method: "POST", body: JSON.stringify({ actor }) }),
   stockParams: (p: Partial<StockParams>) => req<StockParams>("/api/stock-params", { method: "PUT", body: JSON.stringify(p) }),
+  // K6 teslimat, K7 rafinasyon
+  fulfilment: () => req<FulfilmentView>("/api/fulfilment"),
+  catalogRefresh: () => req<Catalog>("/api/catalog"),
+  deliveryCreate: (b: { qty_mg: number; address_ref?: string; insured_party_ref?: string }) => req<KzDelivery>("/api/deliveries", { method: "POST", body: JSON.stringify(b) }),
+  deliveryApprove: (id: string) => req<KzDelivery>(`/api/deliveries/${encodeURIComponent(id)}/approve`, { method: "POST", body: "{}" }),
+  deliveryCancel: (id: string, reason: string) => req<KzDelivery>(`/api/deliveries/${encodeURIComponent(id)}/cancel`, { method: "POST", body: JSON.stringify({ reason }) }),
+  refiningCreate: (b: { items: { item_id: string; qty: number }[]; address_ref?: string; insured_party_ref?: string }) => req<KzRefining>("/api/refining", { method: "POST", body: JSON.stringify(b) }),
+  refiningApprove: (id: string) => req<KzRefining>(`/api/refining/${encodeURIComponent(id)}/approve`, { method: "POST", body: "{}" }),
+  refiningCancel: (id: string, reason: string) => req<KzRefining>(`/api/refining/${encodeURIComponent(id)}/cancel`, { method: "POST", body: JSON.stringify({ reason }) }),
+  fulfilmentParams: (p: { burnMoment: "DELIVERED" | "SHIPPED" }) => req("/api/fulfilment-params", { method: "PUT", body: JSON.stringify(p) }),
 };
 
 export interface VaultStatementDoc {
@@ -167,4 +198,5 @@ export const VAULT_STATUS_TR: Record<string, string> = { HOLD: "durdu", REQUESTE
 export const VAULT_TRIGGER_TR: Record<string, string> = { BIG_BUY: "büyük alış (07)", BIG_SELL: "büyük satış (08)", TREASURY_BUY: "hazine alımı (09)", TREASURY_SELL: "hazine satışı (09)", SETTLEMENT: "mahsuplaşma (12)", MANUAL: "elle" };
 export const TREASURY_STATUS_TR: Record<string, string> = { "ONAY_BEKLİYOR": "onay bekliyor", "GÖNDERİLDİ": "gönderildi", "ZİNCİR_SÜRÜYOR": "zincir sürüyor", TAMAM: "tamam", "REDDEDİLDİ": "reddedildi", "İPTAL": "iptal", HATA: "hata" };
 export const FLOW_TR: Record<string, string> = { STOK: "stoktan", "BÜYÜK_ALIŞ": "büyük alış (07)", "BÜYÜK_SATIŞ": "büyük satış (08)" };
+export const FUL_STATUS_TR: Record<string, string> = { TALEP: "talep hazırlandı", REQUESTED: "rafineride", QUOTED: "teklif geldi", APPROVED: "onaylandı", PREPARING: "hazırlanıyor", IN_PRODUCTION: "üretimde", READY: "hazır", SHIPPED: "taşıyıcıda", DELIVERED: "teslim edildi", CANCELLED: "iptal", FAILED: "teslim edilemedi", HATA: "hata" };
 export const FIELD_TR: Record<string, string> = { "vault.in_vault_mg": "kasada", "vault.placing_mg": "kasaya konuluyor", "vault.shipping_mg": "sevkiyatta", "current_account.gold_mg": "cari hesap altın (T)", "current_account.money.USD": "cari hesap USD", "current_account.money.EUR": "cari hesap EUR", "current_account.money.AED": "cari hesap AED" };

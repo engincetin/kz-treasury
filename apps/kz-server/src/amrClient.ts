@@ -3,7 +3,7 @@
  * POST'ta Idempotency-Key. Gövde gönderildiği ham metinle imzalanır. Zaman aşımı çağıran belirler (emirde time_limit_ms).
  */
 import { createHmac } from "node:crypto";
-import { signingString, type Account, type CurrentAccountStatement, type Document, type OrderRequest, type OrderResponse, type SessionStatus, type VaultRequest, type VaultStatement } from "@amr/contract";
+import { signingString, type Account, type Catalog, type CurrentAccountStatement, type Delivery, type Document, type OrderRequest, type OrderResponse, type Refining, type SessionStatus, type VaultRequest, type VaultStatement } from "@amr/contract";
 
 export class AmrTimeout extends Error { constructor(msg = "zaman aşımı") { super(msg); this.name = "AmrTimeout"; } }
 export class AmrHttpError extends Error { constructor(public status: number, public body: unknown) { super(`HTTP ${status}`); this.name = "AmrHttpError"; } }
@@ -54,4 +54,14 @@ export class AmrClient {
   vaultOut(qty_mg: number, ref: string) { return this.request<VaultRequest>("POST", "/v1/vault/out", { qty_mg, ref }, { idempotencyKey: ref }); }
   vaultRequest(id: string) { return this.request<VaultRequest>("GET", `/v1/vault/requests/${encodeURIComponent(id)}`); }
   vaultStatement(date?: string) { return this.request<VaultStatement>("GET", `/v1/vault/statement${date ? `?date=${date}` : ""}`); }
+  /** Fiziksel teslimat (10) ve rafinasyon (11). */
+  deliveryCreate(b: { qty_mg: number; address_ref: string; insured_party_ref: string; ref: string }) { return this.request<Delivery>("POST", "/v1/deliveries", b, { idempotencyKey: b.ref }); }
+  deliveryGet(id: string) { return this.request<Delivery>("GET", `/v1/deliveries/${encodeURIComponent(id)}`); }
+  deliveryApprove(id: string, quote_id: string) { return this.request<Delivery>("POST", `/v1/deliveries/${encodeURIComponent(id)}/approve`, { quote_id }, { idempotencyKey: `dlv-ap-${id}` }); }
+  deliveryCancel(id: string, reason: string) { return this.request<Delivery>("POST", `/v1/deliveries/${encodeURIComponent(id)}/cancel`, { reason }, { idempotencyKey: `dlv-cx-${id}` }); }
+  catalog() { return this.request<Catalog>("GET", "/v1/catalog"); }
+  refiningCreate(b: { items: { item_id: string; qty: number }[]; address_ref: string; insured_party_ref: string; ref: string }) { return this.request<Refining>("POST", "/v1/refining", b, { idempotencyKey: b.ref }); }
+  refiningGet(id: string) { return this.request<Refining>("GET", `/v1/refining/${encodeURIComponent(id)}`); }
+  refiningApprove(id: string, quote_id: string) { return this.request<Refining>("POST", `/v1/refining/${encodeURIComponent(id)}/approve`, { quote_id }, { idempotencyKey: `rfn-ap-${id}` }); }
+  refiningCancel(id: string, reason: string) { return this.request<Refining>("POST", `/v1/refining/${encodeURIComponent(id)}/cancel`, { reason }, { idempotencyKey: `rfn-cx-${id}` }); }
 }

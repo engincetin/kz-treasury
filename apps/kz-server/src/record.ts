@@ -15,7 +15,7 @@ export interface KzRecord {
   seq: number;
   vault: { in_vault_mg: number; placing_mg: number; shipping_mg: number };
   current_account: { gold_mg: number; money: { ccy: Ccy; cents: number }[] };
-  stock: { s_mg: number; k_mg: number; a_mg: number };
+  stock: { s_mg: number; k_mg: number; a_mg: number; e_mg: number };
   match: "EŞİT" | "RECONCILE" | "BEKLİYOR";
   diffs: Diff[];
   blocked: { mint: boolean; vault_out: boolean };
@@ -29,7 +29,7 @@ export function emptyRecord(openingMg = 0): KzRecord {
     seq: openingMg > 0 ? 1 : 0, // açılış devri rafineride seq 1'dir
     vault: { in_vault_mg: openingMg, placing_mg: 0, shipping_mg: 0 },
     current_account: { gold_mg: 0, money: CCYS.map((ccy) => ({ ccy, cents: 0 })) },
-    stock: { s_mg: openingMg, k_mg: openingMg, a_mg: openingMg },
+    stock: { s_mg: openingMg, k_mg: openingMg, a_mg: openingMg, e_mg: 0 },
     match: "BEKLİYOR", diffs: [], blocked: { mint: false, vault_out: false }, lastAccount: null, lastCompareTs: null, corrections: [],
   };
 }
@@ -84,6 +84,39 @@ export function shiftTarget(r: KzRecord, deltaMg: number) {
   r.stock.k_mg += deltaMg;
 }
 
+// ---------- emanet (E) ve hizmet bedelleri · fiziksel teslimat ve rafinasyon (10, 11) ----------
+
+/** Talep anında müşteri tokenleri burn cüzdanına geçer: E +x, C −x. Henüz yakılmadı, arz değişmez. */
+export function escrowIn(r: KzRecord, qtyMg: number) {
+  r.stock.e_mg = (r.stock.e_mg ?? 0) + qtyMg;
+}
+/** Talep iptalinde emanet çözülür: tokenler müşteriye döner. */
+export function escrowRelease(r: KzRecord, qtyMg: number) {
+  r.stock.e_mg = Math.max(0, (r.stock.e_mg ?? 0) - qtyMg);
+}
+/** Teslimde emanetteki tokenler yakılır: A −x, E −x. Hazine stoku (S) etkilenmez, K2 korunur. */
+export function burnEscrow(r: KzRecord, qtyMg: number) {
+  r.stock.a_mg -= qtyMg;
+  r.stock.e_mg = Math.max(0, (r.stock.e_mg ?? 0) - qtyMg);
+}
+/** Kasa hareketi: hazır olunca kasadan sevkiyata, teslimde sevkiyattan çıkış. */
+export function applyShipReady(r: KzRecord, qtyMg: number) {
+  r.vault.in_vault_mg -= qtyMg;
+  r.vault.shipping_mg += qtyMg;
+}
+export function applyShipReturn(r: KzRecord, qtyMg: number) {
+  r.vault.shipping_mg -= qtyMg;
+  r.vault.in_vault_mg += qtyMg;
+}
+export function applyShipDelivered(r: KzRecord, qtyMg: number) {
+  r.vault.shipping_mg -= qtyMg;
+}
+/** Onaylanan lojistik ve rafinasyon bedeli cari hesabın para tarafına kalem olur (Kanzasset borçlu). */
+export function applyFee(r: KzRecord, ccy: Ccy, cents: number) {
+  const m = r.current_account.money.find((x) => x.ccy === ccy)!;
+  m.cents -= cents;
+}
+
 /** Bakiye bilgisi ile karşılaştırma. Dönüş: eşit mi, seq boşluğu var mı. */
 export function compare(r: KzRecord, acc: Account): { equal: boolean; seqGap: boolean } {
   const diffs: Diff[] = [];
@@ -119,12 +152,15 @@ export function resolveWithSnapshot(r: KzRecord, acc: Account, explanation: stri
 
 export function checks(r: KzRecord) {
   const v = r.vault.in_vault_mg + r.vault.placing_mg + r.vault.shipping_mg;
+  const e = r.stock.e_mg ?? 0;
   const k1 = r.stock.a_mg <= v;
   const k2 = r.stock.s_mg + r.current_account.gold_mg === r.stock.k_mg;
   return {
     k1: { ok: k1, text: `A ${fmtG(r.stock.a_mg)} ≤ V ${fmtG(v)}` },
     k2: { ok: k2, text: `S ${fmtG(r.stock.s_mg)} + T ${fmtG(r.current_account.gold_mg)} = K ${fmtG(r.stock.k_mg)}` },
-    c_mg: r.stock.a_mg - r.stock.s_mg,
+    // A = S + C + E · müşteride dolaşan: arzdan hazine stoku ve emanet düşülür
+    c_mg: r.stock.a_mg - r.stock.s_mg - e,
+    e_mg: e,
     v_mg: v,
   };
 }

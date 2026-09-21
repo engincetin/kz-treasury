@@ -23,6 +23,8 @@ import { checks, compare, emptyRecord, resolveWithSnapshot, type KzRecord } from
 import { DEFAULT_ORDER_PARAMS, OrderDesk, type CustomerOrder, type OrderParams } from "./orders.ts";
 import { DEFAULT_STOCK_PARAMS, VaultDesk, type StockParams, type VaultInstruction } from "./vault.ts";
 import { TreasuryDesk, requiredApprovals, type TreasuryRequest } from "./treasury.ts";
+import { DEFAULT_FULFILMENT, FulfilmentDesk, type FulfilmentParams, type KzDelivery, type KzRefining } from "./fulfilment.ts";
+import type { Catalog } from "@amr/contract";
 
 const PORT = Number(process.env.PORT ?? 5000);
 const AMR_WS_URL = process.env.AMR_WS_URL ?? "ws://localhost:4000/v1/prices";
@@ -42,10 +44,12 @@ interface State {
   record: KzRecord; orders: CustomerOrder[]; notices: Notice[]; noticeId: number; events: EventLog[];
   pricing: PricingParams; orderParams: OrderParams; market: { manualStop: boolean; manualReason: string | null };
   vault: VaultInstruction[]; treasury: TreasuryRequest[]; stock: StockParams;
+  deliveries: KzDelivery[]; refinings: KzRefining[]; catalog: Catalog | null; fulfilment: FulfilmentParams;
 }
 const store = new JsonStore<State>(resolve(DATA_DIR, "kz-state.json"), () => ({
   record: emptyRecord(OPENING_MG), orders: [], notices: [], noticeId: 0, events: [], pricing: { ...DEFAULT_PRICING }, orderParams: { ...DEFAULT_ORDER_PARAMS }, market: { manualStop: false, manualReason: null },
   vault: [], treasury: [], stock: { ...DEFAULT_STOCK_PARAMS, targetMg: OPENING_MG || DEFAULT_STOCK_PARAMS.targetMg },
+  deliveries: [], refinings: [], catalog: null, fulfilment: { ...DEFAULT_FULFILMENT },
 }));
 const S = store.data;
 const ticks: { seq: number; ts: string; tradable: boolean; prices: unknown }[] = [];
@@ -111,6 +115,16 @@ const treasury = new TreasuryDesk({
   onChange: () => { S.treasury = treasury.requests; changed(); },
 }, S.treasury);
 
+// Fiziksel teslimat ve rafinasyon (K6, K7): emanet, burn anı, müşteri fiyatı.
+const fulfilment = new FulfilmentDesk({
+  amr,
+  record: () => S.record,
+  params: () => S.fulfilment,
+  pricing: () => S.pricing,
+  notify,
+  onChange: () => { S.deliveries = fulfilment.deliveries; S.refinings = fulfilment.refinings; S.catalog = fulfilment.catalog; changed(); },
+}, { deliveries: S.deliveries, refinings: S.refinings, catalog: S.catalog });
+
 const status = () => ({
   socket: { ...client.state },
   rest: { url: AMR_HTTP_URL, events_received: S.events.length, last_event_ts: S.events[0]?.received_ts ?? null },
@@ -137,6 +151,13 @@ const status = () => ({
   },
   treasury: { pending: treasury.pending().length },
   awaitingDelivery: desk.awaitingDelivery().length,
+  fulfilment: {
+    deliveries_open: fulfilment.openDeliveries().length,
+    refinings_open: fulfilment.openRefinings().length,
+    awaiting_approval: fulfilment.awaitingApproval().length,
+    burn_moment: S.fulfilment.burnMoment,
+    catalog_version: fulfilment.catalog?.version ?? 0,
+  },
   ts: new Date().toISOString(),
 });
 
@@ -263,6 +284,45 @@ app.get<{ Querystring: { qty_mg?: string } }>("/api/treasury-approvals", async (
 /** Stok parametreleri (K9 önü): taban, tavan, hedef, mint politikası, kasaya konuluyor tavanı, onay matrisi. */
 app.put<{ Body: Partial<StockParams> }>("/api/stock-params", async (req) => { Object.assign(S.stock, req.body ?? {}); changed(); return S.stock; });
 
+// ---- K6: fiziksel teslimat · K7: rafinasyon ----
+app.get("/api/fulfilment", async () => ({
+  deliveries: fulfilment.deliveries, refinings: fulfilment.refinings, catalog: fulfilment.catalog,
+  awaiting_approval: fulfilment.awaitingApproval().length, burn_moment: S.fulfilment.burnMoment,
+  escrow_mg: S.record.stock.e_mg ?? 0, checks: checks(S.record),
+}));
+app.get("/api/catalog", async (req, reply) => {
+  try { return await fulfilment.refreshCatalog(); } catch (e) { return reply.code(502).send({ error: (e as Error).message }); }
+});
+app.post<{ Body: { qty_mg: number; address_ref?: string; insured_party_ref?: string; customer_ref?: string } }>("/api/deliveries", async (req, reply) => {
+  try {
+    return await fulfilment.requestDelivery({
+      qty_mg: Number(req.body?.qty_mg), address_ref: req.body?.address_ref?.trim() || "ADR-DEMO",
+      insured_party_ref: req.body?.insured_party_ref?.trim() || "SIG-DEMO", customer_ref: req.body?.customer_ref,
+    });
+  } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+});
+app.post<{ Params: { id: string } }>("/api/deliveries/:id/approve", async (req, reply) => {
+  try { return await fulfilment.approveDelivery(req.params.id); } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+});
+app.post<{ Params: { id: string }; Body: { reason?: string } }>("/api/deliveries/:id/cancel", async (req, reply) => {
+  try { return await fulfilment.cancelDelivery(req.params.id, req.body?.reason?.trim() || "Kanzasset iptal etti"); } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+});
+app.post<{ Body: { items: { item_id: string; qty: number }[]; address_ref?: string; insured_party_ref?: string; customer_ref?: string } }>("/api/refining", async (req, reply) => {
+  try {
+    return await fulfilment.requestRefining({
+      items: req.body?.items ?? [], address_ref: req.body?.address_ref?.trim() || "ADR-DEMO",
+      insured_party_ref: req.body?.insured_party_ref?.trim() || "SIG-DEMO", customer_ref: req.body?.customer_ref,
+    });
+  } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+});
+app.post<{ Params: { id: string } }>("/api/refining/:id/approve", async (req, reply) => {
+  try { return await fulfilment.approveRefining(req.params.id); } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+});
+app.post<{ Params: { id: string }; Body: { reason?: string } }>("/api/refining/:id/cancel", async (req, reply) => {
+  try { return await fulfilment.cancelRefining(req.params.id, req.body?.reason?.trim() || "Kanzasset iptal etti"); } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+});
+app.put<{ Body: Partial<FulfilmentParams> }>("/api/fulfilment-params", async (req) => { Object.assign(S.fulfilment, req.body ?? {}); changed(); return S.fulfilment; });
+
 // ---- K2: rafineri hesapları ----
 app.get("/api/record", async () => ({ record: S.record, checks: checks(S.record) }));
 app.post("/api/record/snapshot", async (req, reply) => {
@@ -336,6 +396,16 @@ async function handleEvent(ev: EventEnvelope): Promise<string> {
     case "vault.in_accepted": case "vault.in_placing": case "vault.in_placed": case "vault.in_overdue": case "vault.in_rejected":
     case "vault.out_accepted": case "vault.out_rejected":
       return vault.onEvent(ev.type, d, ev.account as Account | undefined);
+    case "delivery.quoted": case "delivery.approved": case "delivery.preparing": case "delivery.ready":
+    case "delivery.shipped": case "delivery.delivered": case "delivery.cancelled": case "delivery.failed":
+    case "refining.quoted": case "refining.approved": case "refining.in_production": case "refining.ready":
+    case "refining.shipped": case "refining.delivered": case "refining.cancelled": case "refining.failed":
+      return fulfilment.onEvent(ev.type, d, ev.account as Account | undefined);
+    case "catalog.updated": {
+      void fulfilment.refreshCatalog().catch(() => {});
+      notify("catalog.updated", "Rafineri kataloğu güncellendi", `sürüm ${d?.version ?? ""}`);
+      return `katalog sürüm ${d?.version ?? ""}`;
+    }
     case "price.halt": return `yayın durdu: ${d?.reason ?? ""}`;
     case "price.resume": return "yayın açıldı";
     case "settlement.requested": notify("settlement.requested", "Rafineri mahsuplaşma talep etti", d?.reason ?? ""); return `mahsuplaşma talebi (${d?.trigger ?? ""})`;

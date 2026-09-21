@@ -42,6 +42,13 @@ Bu repo Kanzasset (KZ) tarafındaki hazine çekirdeğidir. Rafineri tarafı `amr
 - Envanter hedefi `K` yalnız hazine alım satımında ve fill anında değişir (`shiftTarget`); zincirin başında ve sonunda `S + T = K` tutar, arada geçiş vardır.
 - Maker-checker: maker kendi talebini onaylayamaz, aynı onaycı iki kez onaylayamaz, **son onaycı canlı fiyatla gönderir** (talep anındaki fiyat yalnız bilgidir).
 
+## Teslimat ve rafinasyon (fulfilment.ts)
+
+- Talep anında tokenler emanete alınır (`E +x`), arz değişmez; teslimde `burnEscrow` ile yakılır (`A −x`, `E −x`), hazine stoku `S` etkilenmez, böylece K2 korunur.
+- Burn anı parametredir: `DELIVERED` (varsayılan) ya da `SHIPPED`.
+- Teslimatta Kanzasset marj ve komisyon almaz, lojistik masrafı müşteriden aynen alınır; rafinasyonda müşteri fiyatı marj ve komisyon dahildir, rafineriye yalnız bedel ödenir.
+- Katalog rafineriden çekilir, `catalog.updated` olayında kendiliğinden yenilenir.
+
 ## Sprint durumu
 
-Sprint 1, 2 ve 3 tamam: soket istemcisi, fiyatlama, durdur / başlat, bildirimler, SSE, REST istemcisi (HMAC), emir masası, KZ kaydı ve eşleşme, olay alımı, kasa talimatları ve mint / burn eşlemesi, büyük alış / satış, hazine alım satımı; ekranlar K1, K2, K3, K4, K5. Sonraki: Sprint 4 (K6 fiziksel teslimat, K7 rafinasyon). Plan `README.md` sonunda.
+Sprint 1, 2, 3 ve 4 tamam: soket istemcisi, fiyatlama, durdur / başlat, bildirimler, SSE, REST istemcisi (HMAC), emir masası, KZ kaydı ve eşleşme, olay alımı, kasa talimatları ve mint / burn eşlemesi, büyük alış / satış, hazine alım satımı, fiziksel teslimat ve rafinasyon; ekranlar K1, K2, K3, K4, K5, K6, K7. Sonraki: Sprint 5 (K8 mahsuplaşma, K9 parametreler). Plan `README.md` sonunda.
