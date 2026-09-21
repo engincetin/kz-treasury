@@ -21,6 +21,8 @@ import { AmrClient } from "./amrClient.ts";
 import { JsonStore } from "./store.ts";
 import { checks, compare, emptyRecord, resolveWithSnapshot, type KzRecord } from "./record.ts";
 import { DEFAULT_ORDER_PARAMS, OrderDesk, type CustomerOrder, type OrderParams } from "./orders.ts";
+import { DEFAULT_STOCK_PARAMS, VaultDesk, type StockParams, type VaultInstruction } from "./vault.ts";
+import { TreasuryDesk, requiredApprovals, type TreasuryRequest } from "./treasury.ts";
 
 const PORT = Number(process.env.PORT ?? 5000);
 const AMR_WS_URL = process.env.AMR_WS_URL ?? "ws://localhost:4000/v1/prices";
@@ -36,9 +38,14 @@ bus.setMaxListeners(100);
 // ---- kalıcı durum ----
 interface Notice { id: number; type: string; title: string; body?: string; ts: string; read: boolean }
 interface EventLog { event_id: string; type: string; ts: string; received_ts: string; seq?: number; summary: string }
-interface State { record: KzRecord; orders: CustomerOrder[]; notices: Notice[]; noticeId: number; events: EventLog[]; pricing: PricingParams; orderParams: OrderParams; market: { manualStop: boolean; manualReason: string | null } }
+interface State {
+  record: KzRecord; orders: CustomerOrder[]; notices: Notice[]; noticeId: number; events: EventLog[];
+  pricing: PricingParams; orderParams: OrderParams; market: { manualStop: boolean; manualReason: string | null };
+  vault: VaultInstruction[]; treasury: TreasuryRequest[]; stock: StockParams;
+}
 const store = new JsonStore<State>(resolve(DATA_DIR, "kz-state.json"), () => ({
   record: emptyRecord(OPENING_MG), orders: [], notices: [], noticeId: 0, events: [], pricing: { ...DEFAULT_PRICING }, orderParams: { ...DEFAULT_ORDER_PARAMS }, market: { manualStop: false, manualReason: null },
+  vault: [], treasury: [], stock: { ...DEFAULT_STOCK_PARAMS, targetMg: OPENING_MG || DEFAULT_STOCK_PARAMS.targetMg },
 }));
 const S = store.data;
 const ticks: { seq: number; ts: string; tradable: boolean; prices: unknown }[] = [];
@@ -67,6 +74,17 @@ const notify = (type: string, title: string, body?: string) => {
 };
 const changed = () => { store.save(); bus.emit("event", { kind: "status", status: status() }); };
 
+// Kasa talimatları (K4): mint yalnız Kasa Giriş Fişi'ne karşı, burn kasa çıkışından önce.
+const vault = new VaultDesk({
+  amr,
+  record: () => S.record,
+  params: () => S.stock,
+  notify,
+  onChange: () => { S.vault = vault.instructions; changed(); },
+  onMinted: (inst) => { desk.deliverPending(inst); treasury.onMinted(inst); },
+  onOutAccepted: (inst) => { treasury.onOutAccepted(inst); },
+}, S.vault);
+
 const desk = new OrderDesk({
   amr,
   priceState: () => client.state,
@@ -76,7 +94,22 @@ const desk = new OrderDesk({
   record: () => S.record,
   onChange: () => { S.orders = desk.orders; changed(); },
   notify,
+  stock: () => S.stock,
+  vault: () => vault,
 }, S.orders);
+
+// Hazine alım satımı (K5): maker-checker, son onaycı canlı fiyatla gönderir.
+const treasury = new TreasuryDesk({
+  amr,
+  priceState: () => client.state,
+  tradingOpen: () => ({ open: tradingOpen(), reason: tradingReason() }),
+  record: () => S.record,
+  stock: () => S.stock,
+  orderParams: () => S.orderParams,
+  vault: () => vault,
+  notify,
+  onChange: () => { S.treasury = treasury.requests; changed(); },
+}, S.treasury);
 
 const status = () => ({
   socket: { ...client.state },
@@ -90,6 +123,20 @@ const status = () => ({
   checks: checks(S.record),
   unanswered: desk.unanswered().length,
   lateFills: desk.lateFills().length,
+  stock: S.stock,
+  vault: {
+    placing_mg: vault.placingMg(),
+    in_flight_mg: vault.inFlightMg(),
+    committed_placing_mg: vault.committedPlacingMg(),
+    placing_cap_mg: S.stock.placingCapMg,
+    awaiting_mint: vault.awaitingMint().length,
+    holds: vault.holds().length,
+    mint_block: vault.mintBlock(),
+    vault_out_block: vault.vaultOutBlock(),
+    open: vault.instructions.filter((i) => i.status === "REQUESTED" || i.status === "HOLD" || i.status === "ACCEPTED" || i.status === "PLACING" || i.status === "OVERDUE").length,
+  },
+  treasury: { pending: treasury.pending().length },
+  awaitingDelivery: desk.awaitingDelivery().length,
   ts: new Date().toISOString(),
 });
 
@@ -159,6 +206,63 @@ app.post<{ Params: { id: string } }>("/api/orders/:id/resolve", async (req, repl
   return o;
 });
 
+// ---- K4: kasa talimatları ----
+app.get<{ Querystring: { limit?: string } }>("/api/vault", async (req) => ({
+  items: vault.list(Math.min(500, Number(req.query.limit ?? 200))),
+  placing_mg: vault.placingMg(),
+  in_flight_mg: vault.inFlightMg(),
+  committed_placing_mg: vault.committedPlacingMg(),
+  placing_cap_mg: S.stock.placingCapMg,
+  awaiting_mint: vault.awaitingMint(),
+  holds: vault.holds(),
+  mint_block: vault.mintBlock(),
+  vault_out_block: vault.vaultOutBlock(),
+  record: S.record,
+  checks: checks(S.record),
+}));
+app.get<{ Params: { ref: string } }>("/api/vault/:ref", async (req, reply) => vault.get(req.params.ref) ?? reply.code(404).send({ error: "talimat yok" }));
+/** Elle kasa talimatı: yalnız yönetici, gerekçeli (K4). Otomatik talepler 07, 08, 09 ve 12'den gelir. */
+app.post<{ Body: { type: "IN" | "OUT"; qty_mg: number; reason?: string } }>("/api/vault", async (req, reply) => {
+  const reason = req.body?.reason?.trim();
+  if (!reason) return reply.code(400).send({ error: "gerekçe zorunlu (elle kasa talimatı)" });
+  if (req.body?.type !== "IN" && req.body?.type !== "OUT") return reply.code(400).send({ error: "tür IN ya da OUT olmalı" });
+  try {
+    const inst = req.body.type === "IN"
+      ? await vault.requestIn(Number(req.body.qty_mg), "MANUAL")
+      : await vault.requestOut(Number(req.body.qty_mg), "MANUAL");
+    inst.timeline.unshift({ ts: new Date().toISOString(), text: `elle talimat · gerekçe: ${reason}` });
+    changed();
+    return inst;
+  } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+});
+/** Tavan yüzünden duran (HOLD) kasa girişini yeniden dener. */
+app.post<{ Params: { ref: string } }>("/api/vault/:ref/retry", async (req, reply) => {
+  try { return await vault.retry(req.params.ref); } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+});
+/** Bloke kalkınca fişi gelmiş ama mint'i bekleyen girişleri işler. */
+app.post("/api/vault/flush-mints", async () => { vault.flushMints(); changed(); return { ok: true, awaiting: vault.awaitingMint().length, block: vault.mintBlock() }; });
+app.get<{ Querystring: { date?: string } }>("/api/vault/statement", async (req, reply) => {
+  try { return await amr.vaultStatement(req.query.date); } catch (e) { return reply.code(502).send({ error: (e as Error).message }); }
+});
+
+// ---- K5: hazine alım satımı ----
+app.get("/api/treasury", async () => ({ items: treasury.list(), pending: treasury.pending(), stock: S.stock, record: S.record }));
+app.get<{ Params: { id: string } }>("/api/treasury/:id", async (req, reply) => treasury.get(req.params.id) ?? reply.code(404).send({ error: "talep yok" }));
+app.post<{ Body: { side: "BUY" | "SELL"; qty_mg: number; ccy: "USD" | "EUR" | "AED"; maker: string } }>("/api/treasury", async (req, reply) => {
+  try { return treasury.create({ ...req.body, qty_mg: Number(req.body.qty_mg) }); } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+});
+app.post<{ Params: { id: string }; Body: { approver: string } }>("/api/treasury/:id/approve", async (req, reply) => {
+  try { return await treasury.approve(req.params.id, req.body?.approver); } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+});
+app.post<{ Params: { id: string }; Body: { actor?: string } }>("/api/treasury/:id/cancel", async (req, reply) => {
+  try { return treasury.cancel(req.params.id, req.body?.actor?.trim() || "hazineci"); } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+});
+/** Onay matrisi önizlemesi: girilen gram kaç onay ister. */
+app.get<{ Querystring: { qty_mg?: string } }>("/api/treasury-approvals", async (req) => ({ qty_mg: Number(req.query.qty_mg ?? 0), required: requiredApprovals(Number(req.query.qty_mg ?? 0), S.stock) }));
+
+/** Stok parametreleri (K9 önü): taban, tavan, hedef, mint politikası, kasaya konuluyor tavanı, onay matrisi. */
+app.put<{ Body: Partial<StockParams> }>("/api/stock-params", async (req) => { Object.assign(S.stock, req.body ?? {}); changed(); return S.stock; });
+
 // ---- K2: rafineri hesapları ----
 app.get("/api/record", async () => ({ record: S.record, checks: checks(S.record) }));
 app.post("/api/record/snapshot", async (req, reply) => {
@@ -177,8 +281,9 @@ app.post<{ Body: { explanation?: string } }>("/api/record/resolve", async (req, 
     const acc = await amr.account();
     resolveWithSnapshot(S.record, acc, explanation);
     notify("account.resolved", "RECONCILE çözüldü", explanation);
+    vault.flushMints(); // bloke kalktı: fişi gelmiş ama bekleyen mint'ler yapılır
     changed();
-    return { record: S.record };
+    return { record: S.record, mint_block: vault.mintBlock(), awaiting_mint: vault.awaitingMint().length };
   } catch (e) { return reply.code(502).send({ error: `rafineriye ulaşılamadı: ${(e as Error).message}` }); }
 });
 // demo: KZ kaydını bilerek kaydırır (eşleşme uyuşmazlığı senaryosu S6). KZ_DEMO=0 ile kapanır.
@@ -228,6 +333,9 @@ async function handleEvent(ev: EventEnvelope): Promise<string> {
       if (o && (o.status === "UNANSWERED" || o.status === "SENT")) { await desk.onResponse(o, r, true); return `${r.client_order_id} → ${r.status} (olayla kapandı)`; }
       return `${r.client_order_id} ${r.status}`;
     }
+    case "vault.in_accepted": case "vault.in_placing": case "vault.in_placed": case "vault.in_overdue": case "vault.in_rejected":
+    case "vault.out_accepted": case "vault.out_rejected":
+      return vault.onEvent(ev.type, d, ev.account as Account | undefined);
     case "price.halt": return `yayın durdu: ${d?.reason ?? ""}`;
     case "price.resume": return "yayın açıldı";
     case "settlement.requested": notify("settlement.requested", "Rafineri mahsuplaşma talep etti", d?.reason ?? ""); return `mahsuplaşma talebi (${d?.trigger ?? ""})`;

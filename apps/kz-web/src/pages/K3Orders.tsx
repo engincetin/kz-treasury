@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, fmtDT, fmtG, fmtMoney, fmtTime, ORDER_TR, REJECT_TR, type Ccy, type CustomerOrder, type useLive } from "../api.ts";
+import { api, fmtDT, fmtG, fmtMoney, fmtTime, FLOW_TR, ORDER_TR, REJECT_TR, type Ccy, type CustomerOrder, type useLive } from "../api.ts";
 
 type Live = ReturnType<typeof useLive>;
 
@@ -74,9 +74,9 @@ export function K3Orders({ live }: { live: Live }) {
       <section className="card">
         <h2>Emirler</h2>
         <table>
-          <thead><tr><th>Zaman</th><th>Müşteri emri</th><th>Yön</th><th className="num">Gram</th><th>Kur</th><th className="num">Müşteri fiyatı</th><th className="num">Müşteri toplamı</th><th className="num">Rafineri fill</th><th className="num">Marj</th><th>Rafineri</th><th>Müşteri</th><th>Eşleşme</th></tr></thead>
+          <thead><tr><th>Zaman</th><th>Müşteri emri</th><th>Yön</th><th className="num">Gram</th><th>Kur</th><th className="num">Müşteri fiyatı</th><th className="num">Müşteri toplamı</th><th className="num">Rafineri fill</th><th className="num">Marj</th><th>Akış</th><th>Rafineri</th><th>Müşteri</th><th>Eşleşme</th></tr></thead>
           <tbody>
-            {(data?.items ?? []).length === 0 && <tr><td colSpan={12} className="small">Emir yok</td></tr>}
+            {(data?.items ?? []).length === 0 && <tr><td colSpan={13} className="small">Emir yok</td></tr>}
             {data?.items.map((o) => (
               <tr key={o.id} onClick={() => setSel(o)} style={{ cursor: "pointer", background: sel?.id === o.id ? "#f4f5f7" : undefined }}>
                 <td className="mono">{fmtTime(o.ts)}</td>
@@ -88,6 +88,7 @@ export function K3Orders({ live }: { live: Live }) {
                 <td className="num">{fmtMoney(o.client_total_cents)}</td>
                 <td className="num">{o.refinery?.fill?.px ?? ""}</td>
                 <td className="num">{o.margin_cents !== undefined ? fmtMoney(o.margin_cents) : ""}</td>
+                <td className="small">{o.flow ? FLOW_TR[o.flow] ?? o.flow : ""}{o.chain_mg ? <><br /><span className="mono small">{fmtG(o.chain_mg)} g</span></> : null}</td>
                 <td><Pill o={o} /></td>
                 <td className="small">{o.customer_status}</td>
                 <td>{o.match ? <span className={`pill ${o.match === "EŞİT" ? "ok" : "bad"}`}>{o.match}</span> : ""}</td>

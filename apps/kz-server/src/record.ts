@@ -34,13 +34,54 @@ export function emptyRecord(openingMg = 0): KzRecord {
   };
 }
 
-/** Fill'i KZ kaydına işler (rafineri bacağı + hazine stoku). */
-export function applyFill(r: KzRecord, side: "BUY" | "SELL", qtyMg: number, ccy: Ccy, amountCents: number) {
+/**
+ * Fill'i KZ kaydına işler (rafineri bacağı + hazine stoku).
+ * `deliver = false`: müşteriye teslim / stoğa dönüş bu anda olmaz, yalnız rafineri bacağı (T ve P) işlenir.
+ * Büyük alışta (07) teslim mint'ten sonradır, geç fill'de teslim hiç olmaz, hazine emrinde (09) müşteri yoktur.
+ */
+export function applyFill(r: KzRecord, side: "BUY" | "SELL", qtyMg: number, ccy: Ccy, amountCents: number, opts: { deliver?: boolean } = {}) {
   const sign = side === "BUY" ? 1 : -1;
   r.current_account.gold_mg += sign * qtyMg;
   const m = r.current_account.money.find((x) => x.ccy === ccy)!;
   m.cents += -sign * amountCents;
-  r.stock.s_mg -= sign * qtyMg; // alışta stoktan teslim, satışta stoğa dönüş
+  if (opts.deliver ?? true) applyDelivery(r, side, qtyMg);
+}
+
+/** Müşteri bacağı: alışta stoktan teslim (S −x), satışta stoğa dönüş (S +x). */
+export function applyDelivery(r: KzRecord, side: "BUY" | "SELL", qtyMg: number) {
+  r.stock.s_mg -= side === "BUY" ? qtyMg : -qtyMg;
+}
+
+// ---------- kasa talimatı bacağı (05, 06) · rafineriye görünmeyen mint / burn ----------
+
+/** Kasa girişi kabulü (Kasa Giriş Fişi geldi): T −q, kasaya konuluyor +q. */
+export function applyVaultInAccepted(r: KzRecord, qtyMg: number) {
+  r.current_account.gold_mg -= qtyMg;
+  r.vault.placing_mg += qtyMg;
+}
+/** Kasaya konuldu: kasaya konuluyor −q, kasada +q (V toplamı değişmez). */
+export function applyVaultPlaced(r: KzRecord, qtyMg: number) {
+  r.vault.placing_mg -= qtyMg;
+  r.vault.in_vault_mg += qtyMg;
+}
+/** Kasa çıkışı kabulü (Kasa Çıkış Fişi geldi): kasada −b, T +b. */
+export function applyVaultOutAccepted(r: KzRecord, qtyMg: number) {
+  r.vault.in_vault_mg -= qtyMg;
+  r.current_account.gold_mg += qtyMg;
+}
+/** Mint: yalnız Kasa Giriş Fişi'ne karşı (K4). A +q, S +q. Rafineriye görünmez. */
+export function mint(r: KzRecord, qtyMg: number) {
+  r.stock.a_mg += qtyMg;
+  r.stock.s_mg += qtyMg;
+}
+/** Burn: kasa çıkışı talebinden önce (K1: A ≤ V hiç bozulmaz). A −b, S −b. Rafineriye görünmez. */
+export function burn(r: KzRecord, qtyMg: number) {
+  r.stock.a_mg -= qtyMg;
+  r.stock.s_mg -= qtyMg;
+}
+/** Envanter hedefi K yalnız hazine alım satımıyla değişir (09). */
+export function shiftTarget(r: KzRecord, deltaMg: number) {
+  r.stock.k_mg += deltaMg;
 }
 
 /** Bakiye bilgisi ile karşılaştırma. Dönüş: eşit mi, seq boşluğu var mı. */

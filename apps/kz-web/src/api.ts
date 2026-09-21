@@ -33,7 +33,38 @@ export interface CustomerOrder {
   quote_seq: number; refinery_quote_px: string; limit_px: string; client_px: string; client_amount_cents: number; commission_cents: number; client_total_cents: number;
   status: "SENT" | "FILLED" | "REJECTED" | "CANCELLED" | "UNANSWERED" | "LATE_FILL" | "ERROR";
   customer_status: string; refinery: RefineryOrder | null; reject_reason?: string; error?: string; margin_cents?: number; match?: string;
-  decision?: "CLOSE" | "CARRY"; decision_order_id?: string; timeline: { ts: string; text: string }[];
+  decision?: "CLOSE" | "CARRY"; decision_order_id?: string;
+  flow?: "STOK" | "BÜYÜK_ALIŞ" | "BÜYÜK_SATIŞ"; vault_ref?: string; chain_mg?: number;
+  timeline: { ts: string; text: string }[];
+}
+export interface StockParams {
+  targetMg: number; floorMg: number; ceilingMg: number;
+  mintPolicy: "SHORTFALL" | "FULL_ORDER";
+  placingCapMg: number;
+  approvalMatrix: { upToMg: number; approvals: number }[];
+  approvalsAbove: number;
+}
+export type VaultStatus = "HOLD" | "REQUESTED" | "ACCEPTED" | "PLACING" | "PLACED" | "OVERDUE" | "REJECTED" | "ERROR";
+export type VaultTrigger = "BIG_BUY" | "BIG_SELL" | "TREASURY_BUY" | "TREASURY_SELL" | "SETTLEMENT" | "MANUAL";
+export interface VaultInstruction {
+  ref: string; type: "IN" | "OUT"; qty_mg: number; trigger: VaultTrigger; status: VaultStatus;
+  request_id?: string; doc_id?: string; mint_tx?: string; burn_tx?: string; minted: boolean; burned: boolean;
+  hold_reason?: string; reject_reason?: string; related_id?: string; due_ts?: string; created_ts: string;
+  timeline: { ts: string; text: string }[];
+}
+export interface VaultView {
+  items: VaultInstruction[]; placing_mg: number; in_flight_mg: number; committed_placing_mg: number; placing_cap_mg: number;
+  awaiting_mint: VaultInstruction[]; holds: VaultInstruction[]; mint_block: string | null; vault_out_block: string | null;
+  record: KzRecord; checks: Checks;
+}
+export type TreasuryStatus = "ONAY_BEKLİYOR" | "GÖNDERİLDİ" | "ZİNCİR_SÜRÜYOR" | "TAMAM" | "REDDEDİLDİ" | "İPTAL" | "HATA";
+export interface TreasuryRequest {
+  id: string; side: "BUY" | "SELL"; qty_mg: number; ccy: Ccy; maker: string;
+  required_approvals: number; approvals: { by: string; ts: string }[]; status: TreasuryStatus;
+  quoted_px: string; quoted_amount_cents: number;
+  order_id?: string; fill_px?: string; fill_amount_cents?: number; reject_reason?: string; vault_ref?: string;
+  target_before_mg: number; target_after_mg?: number; error?: string; created_ts: string; sent_ts?: string;
+  timeline: { ts: string; text: string }[];
 }
 export interface Status {
   socket: { url: string; connection: "DISCONNECTED" | "CONNECTING" | "AUTHENTICATING" | "SUBSCRIBED"; tradable: boolean; haltReason: string | null; stale: boolean; seq: number; lastMsgTs: string | null; lastTickTs: string | null; lastPrices: PriceLevel[] | null; reconnectAttempt: number; gaps: number; lastError: string | null };
@@ -47,6 +78,13 @@ export interface Status {
   checks: Checks;
   unanswered: number;
   lateFills: number;
+  stock: StockParams;
+  vault: {
+    placing_mg: number; in_flight_mg: number; committed_placing_mg: number; placing_cap_mg: number;
+    awaiting_mint: number; holds: number; mint_block: string | null; vault_out_block: string | null; open: number;
+  };
+  treasury: { pending: number };
+  awaitingDelivery: number;
   ts: string;
 }
 export interface EventLog { event_id: string; type: string; ts: string; received_ts: string; seq?: number; summary: string }
@@ -71,7 +109,29 @@ export const api = {
   resolveRecord: (explanation: string) => req<{ record: KzRecord }>("/api/record/resolve", { method: "POST", body: JSON.stringify({ explanation }) }),
   events: () => req<EventLog[]>("/api/events"),
   document: (id: string) => req<Doc>(`/api/documents/${encodeURIComponent(id)}`),
+  // K4 kasa talimatları
+  vault: (limit = 200) => req<VaultView>(`/api/vault?limit=${limit}`),
+  vaultManual: (type: "IN" | "OUT", qty_mg: number, reason: string) => req<VaultInstruction>("/api/vault", { method: "POST", body: JSON.stringify({ type, qty_mg, reason }) }),
+  vaultRetry: (ref: string) => req<VaultInstruction>(`/api/vault/${encodeURIComponent(ref)}/retry`, { method: "POST", body: "{}" }),
+  flushMints: () => req<{ ok: boolean; awaiting: number; block: string | null }>("/api/vault/flush-mints", { method: "POST", body: "{}" }),
+  vaultStatement: (date?: string) => req<VaultStatementDoc>(`/api/vault/statement${date ? `?date=${date}` : ""}`),
+  // K5 hazine alım satımı
+  treasury: () => req<{ items: TreasuryRequest[]; pending: TreasuryRequest[]; stock: StockParams; record: KzRecord }>("/api/treasury"),
+  treasuryCreate: (b: { side: "BUY" | "SELL"; qty_mg: number; ccy: Ccy; maker: string }) => req<TreasuryRequest>("/api/treasury", { method: "POST", body: JSON.stringify(b) }),
+  treasuryApprove: (id: string, approver: string) => req<TreasuryRequest>(`/api/treasury/${encodeURIComponent(id)}/approve`, { method: "POST", body: JSON.stringify({ approver }) }),
+  treasuryCancel: (id: string, actor: string) => req<TreasuryRequest>(`/api/treasury/${encodeURIComponent(id)}/cancel`, { method: "POST", body: JSON.stringify({ actor }) }),
+  stockParams: (p: Partial<StockParams>) => req<StockParams>("/api/stock-params", { method: "PUT", body: JSON.stringify(p) }),
 };
+
+export interface VaultStatementDoc {
+  date: string;
+  opening: { in_vault_mg: number; placing_mg: number; shipping_mg: number };
+  closing: { in_vault_mg: number; placing_mg: number; shipping_mg: number };
+  total_mg: number;
+  movements: { seq: number; type: string; in_vault_mg: number; placing_mg: number; shipping_mg: number; related_id?: string; doc_id?: string; ts: string }[];
+  slips: { doc_id: string; type: string; related_id: string; created_ts: string }[];
+  hash: string; signature: string;
+}
 
 export function useLive() {
   const [status, setStatus] = useState<Status | null>(null);
@@ -103,4 +163,8 @@ export const fmtDT = (iso: string | null | undefined) => (iso ? new Date(iso).to
 export const ageSec = (iso: string | null | undefined) => (iso ? Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 1000)) : null);
 export const ORDER_TR: Record<string, string> = { SENT: "gönderildi", FILLED: "gerçekleşti", REJECTED: "reddedildi", CANCELLED: "iptal", UNANSWERED: "cevapsız", LATE_FILL: "geç fill", ERROR: "hata" };
 export const REJECT_TR: Record<string, string> = { PRICE_OUTSIDE_LIMIT: "fiyat limit dışı (slippage)", STALE_QUOTE: "bayat quote_seq", TRADING_HALTED: "rafineri yayını durdu", CURRENT_ACCOUNT_LIMIT: "cari hesap limiti", DUPLICATE_ORDER: "tekrar emir", INVALID_QTY: "geçersiz miktar", INSUFFICIENT_CURRENT_ACCOUNT: "cari hesap altını yetersiz", INSUFFICIENT_VAULT: "kasada yetersiz", QUOTE_EXPIRED: "teklif süresi doldu", INTERNAL_ERROR: "iç hata" };
+export const VAULT_STATUS_TR: Record<string, string> = { HOLD: "durdu", REQUESTED: "talep edildi", ACCEPTED: "kabul edildi", PLACING: "kasaya konuluyor", PLACED: "kasaya konuldu", OVERDUE: "vade geçti (T+3)", REJECTED: "reddedildi", ERROR: "hata" };
+export const VAULT_TRIGGER_TR: Record<string, string> = { BIG_BUY: "büyük alış (07)", BIG_SELL: "büyük satış (08)", TREASURY_BUY: "hazine alımı (09)", TREASURY_SELL: "hazine satışı (09)", SETTLEMENT: "mahsuplaşma (12)", MANUAL: "elle" };
+export const TREASURY_STATUS_TR: Record<string, string> = { "ONAY_BEKLİYOR": "onay bekliyor", "GÖNDERİLDİ": "gönderildi", "ZİNCİR_SÜRÜYOR": "zincir sürüyor", TAMAM: "tamam", "REDDEDİLDİ": "reddedildi", "İPTAL": "iptal", HATA: "hata" };
+export const FLOW_TR: Record<string, string> = { STOK: "stoktan", "BÜYÜK_ALIŞ": "büyük alış (07)", "BÜYÜK_SATIŞ": "büyük satış (08)" };
 export const FIELD_TR: Record<string, string> = { "vault.in_vault_mg": "kasada", "vault.placing_mg": "kasaya konuluyor", "vault.shipping_mg": "sevkiyatta", "current_account.gold_mg": "cari hesap altın (T)", "current_account.money.USD": "cari hesap USD", "current_account.money.EUR": "cari hesap EUR", "current_account.money.AED": "cari hesap AED" };

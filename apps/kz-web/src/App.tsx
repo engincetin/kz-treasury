@@ -5,13 +5,15 @@ import { K1Connection } from "./pages/K1Connection.tsx";
 import { Placeholder } from "./pages/Placeholder.tsx";
 import { K2Accounts } from "./pages/K2Accounts.tsx";
 import { K3Orders } from "./pages/K3Orders.tsx";
+import { K4Vault } from "./pages/K4Vault.tsx";
+import { K5Treasury } from "./pages/K5Treasury.tsx";
 
 const SCREENS = [
   { code: "K1", path: "/", title: "Bağlantı ve fiyat", sprint: 1 },
   { code: "K2", path: "/hesaplar", title: "Rafineri hesapları", sprint: 2, done: true },
   { code: "K3", path: "/emirler", title: "Emir günlüğü", sprint: 2, done: true },
-  { code: "K4", path: "/kasa", title: "Kasa talimatları", sprint: 3 },
-  { code: "K5", path: "/hazine", title: "Hazine alım satımı", sprint: 3 },
+  { code: "K4", path: "/kasa", title: "Kasa talimatları", sprint: 3, done: true },
+  { code: "K5", path: "/hazine", title: "Hazine alım satımı", sprint: 3, done: true },
   { code: "K6", path: "/teslimat", title: "Fiziksel teslimat", sprint: 4 },
   { code: "K7", path: "/rafinasyon", title: "Rafinasyon", sprint: 4 },
   { code: "K8", path: "/mahsuplasma", title: "Mahsuplaşma", sprint: 5 },
@@ -37,8 +39,8 @@ export function App() {
           <Route path="/" element={<K1Connection live={live} />} />
           <Route path="/hesaplar" element={<K2Accounts live={live} />} />
           <Route path="/emirler" element={<K3Orders live={live} />} />
-          <Route path="/kasa" element={<Placeholder code="K4" title="Kasa talimatları" sprint={3} text="Giriş / çıkış talepleri ve durumları (talep, kabul, kasaya konuluyor, kasaya konuldu, red), Kasa Giriş / Çıkış Fişleri, mint / burn eşlemesi (BitGo), T+3 sayacı." />} />
-          <Route path="/hazine" element={<Placeholder code="K5" title="Hazine alım satımı" sprint={3} text="Maker-checker: talep oluştur, onay matrisi, son onaycı canlı fiyatla gönderir; sonuç zinciri fill → kasa girişi / çıkışı → mint / burn." />} />
+          <Route path="/kasa" element={<K4Vault live={live} />} />
+          <Route path="/hazine" element={<K5Treasury live={live} />} />
           <Route path="/teslimat" element={<Placeholder code="K6" title="Fiziksel teslimat" sprint={4} text="Müşteri itfa talebi → rafineriye talep → lojistik teklifi onayı → hazırlık, sevkiyat, takip no, teslim; DELIVERED olayında burn." />} />
           <Route path="/rafinasyon" element={<Placeholder code="K7" title="Rafinasyon" sprint={4} text="Rafineri kataloğu, müşteri seçimi, rafineri teklifi (ürün bedeli + lojistik), müşteriye marj + komisyon dahil fiyat, onay, üretim ve teslimat takibi." />} />
           <Route path="/mahsuplasma" element={<Placeholder code="K8" title="Mahsuplaşma" sprint={5} text="Pencereler (kesim saati otomatik, talep iki yönlü), KZ ekstresi ↔ AMR ekstresi karşılaştırma, mutabakat onayı, altın bacağı izleme, ödeme talimatı ve bildirimi." />} />
@@ -77,14 +79,17 @@ function TopBar({ s, sse, refresh }: { s: Status | null; sse: boolean; refresh: 
       <div className="chip">
         <span className="l">Kasa hesabı (KZ kaydı)</span>
         <span className="v mono">{s ? fmtG(s.record.vault.in_vault_mg + s.record.vault.placing_mg + s.record.vault.shipping_mg) : "…"} g</span>
-        <span className="s">eşleşme <span className={`pill ${s?.record.match === "EŞİT" ? "ok" : s?.record.match === "RECONCILE" ? "bad" : "warn"}`}>{s?.record.match ?? ""}</span> · K1 {s?.checks.k1.ok ? "✓" : "✗"} · K2 {s?.checks.k2.ok ? "✓" : "✗"}</span>
+        <span className="s">
+          eşleşme <span className={`pill ${s?.record.match === "EŞİT" ? "ok" : s?.record.match === "RECONCILE" ? "bad" : "warn"}`}>{s?.record.match ?? ""}</span> · K1 {s?.checks.k1.ok ? "✓" : "✗"} · K2 {s?.checks.k2.ok ? "✓" : "✗"}
+          {s?.vault && (s.vault.mint_block ? " · mint BLOKE" : s.vault.open > 0 ? ` · ${s.vault.open} kasa talimatı açık` : "")}
+        </span>
       </div>
       <div className="chip">
         <span className="l">Cari hesap (KZ kaydı)</span>
         <span className="v mono">{s ? `${s.record.current_account.gold_mg >= 0 ? "+" : ""}${fmtG(s.record.current_account.gold_mg)} g` : "…"}</span>
         <span className="s">{s?.record.current_account.money.map((m) => `${m.ccy} ${fmtMoney(m.cents)}`).join(" · ")}</span>
       </div>
-      <button className="bell" onClick={() => setOpen((v) => !v)}>🔔 Bildirimler {s && s.unread > 0 && <span className="n">{s.unread}</span>}{s && (s.unanswered + s.lateFills) > 0 && <span className="n" style={{ background: "var(--warn)" }} title="cevapsız / geç fill">{s.unanswered + s.lateFills}</span>}</button>
+      <button className="bell" onClick={() => setOpen((v) => !v)}>🔔 Bildirimler {s && s.unread > 0 && <span className="n">{s.unread}</span>}{s && (s.unanswered + s.lateFills + s.awaitingDelivery + s.treasury.pending) > 0 && <span className="n" style={{ background: "var(--warn)" }} title="cevapsız / geç fill · teslim bekleyen · onay bekleyen">{s.unanswered + s.lateFills + s.awaitingDelivery + s.treasury.pending}</span>}</button>
       {open && (
         <div className="drawer">
           {items.length === 0 && <div className="item">Bildirim yok</div>}

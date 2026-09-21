@@ -3,7 +3,7 @@
  * POST'ta Idempotency-Key. Gövde gönderildiği ham metinle imzalanır. Zaman aşımı çağıran belirler (emirde time_limit_ms).
  */
 import { createHmac } from "node:crypto";
-import { signingString, type Account, type CurrentAccountStatement, type Document, type OrderRequest, type OrderResponse, type SessionStatus } from "@amr/contract";
+import { signingString, type Account, type CurrentAccountStatement, type Document, type OrderRequest, type OrderResponse, type SessionStatus, type VaultRequest, type VaultStatement } from "@amr/contract";
 
 export class AmrTimeout extends Error { constructor(msg = "zaman aşımı") { super(msg); this.name = "AmrTimeout"; } }
 export class AmrHttpError extends Error { constructor(public status: number, public body: unknown) { super(`HTTP ${status}`); this.name = "AmrHttpError"; } }
@@ -49,4 +49,9 @@ export class AmrClient {
     return this.request<CurrentAccountStatement>("GET", `/v1/current-account/statement${q.size ? `?${q}` : ""}`);
   }
   document(id: string) { return this.request<Document>("GET", `/v1/documents/${encodeURIComponent(id)}`); }
+  /** Kasa talimatı (05, 06): `ref` Kanzasset referansıdır ve tekildir, aynı ref ile tekrar aynı talebi döner. */
+  vaultIn(qty_mg: number, ref: string) { return this.request<VaultRequest>("POST", "/v1/vault/in", { qty_mg, ref }, { idempotencyKey: ref }); }
+  vaultOut(qty_mg: number, ref: string) { return this.request<VaultRequest>("POST", "/v1/vault/out", { qty_mg, ref }, { idempotencyKey: ref }); }
+  vaultRequest(id: string) { return this.request<VaultRequest>("GET", `/v1/vault/requests/${encodeURIComponent(id)}`); }
+  vaultStatement(date?: string) { return this.request<VaultStatement>("GET", `/v1/vault/statement${date ? `?date=${date}` : ""}`); }
 }
