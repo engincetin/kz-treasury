@@ -26,6 +26,13 @@ Bu repo Kanzasset (KZ) tarafındaki hazine çekirdeğidir. Rafineri tarafı `amr
 - Test: `npm test`. Fiyatlama ve eşleşme kuralları için önce test.
 - Statik web `apps/kz-web/dist` içinden `@fastify/static` ile (wildcard açık, SPA fallback `index.html`).
 
+## Emir masası (orders.ts) ve KZ kaydı (record.ts)
+
+- `OrderDesk.place`: fiyat → müşteri fiyatı (marj gömülü) ve komisyon → rafineriye FOK emir (`quote_seq`, `limit_px`, `time_limit_ms`) → cevap. Banka ve BitGo bacakları demoda zaman çizelgesi metnidir; rafineri bacağı gerçektir.
+- Cevapsız: `AmrTimeout` → `unansweredGraceMs` bekle → `GET /v1/orders/{id}` → açıksa `cancel` (kesin cevap). Geç fill: rafineri bacağı bağlayıcı, müşteriye teslim yok, `decide(CLOSE | CARRY)`.
+- `record.ts`: `applyFill` (T, P, S) → `compare(account)`: fark yoksa EŞİT ve seq alınır; varsa RECONCILE ve `blocked = {mint, vault_out}`. `resolveWithSnapshot` düzeltme kaydı tutar. Kontroller `checks()`.
+- Durum `KZ_DATA_DIR/kz-state.json` içinde (JsonStore); yeniden başlatmada emirler ve KZ kaydı kalır.
+
 ## Sprint durumu
 
-Sprint 1 tamam: soket istemcisi (auth, snapshot, tick, heartbeat, halt / resume, seq boşluğu, bayatlık, yeniden bağlanma), fiyatlama, durdur / başlat, bildirimler, SSE, K1 ekranı. Sonraki: Sprint 2 (K2 rafineri hesapları, K3 emir günlüğü). Plan `README.md` sonunda.
+Sprint 1 ve 2 tamam: soket istemcisi, fiyatlama, durdur / başlat, bildirimler, SSE, REST istemcisi (HMAC), emir masası, KZ kaydı ve eşleşme, olay alımı; ekranlar K1, K2, K3. Sonraki: Sprint 3 (K4 kasa talimatları + fişler + mint / burn eşlemesi, K5 hazine alım satımı). Plan `README.md` sonunda.

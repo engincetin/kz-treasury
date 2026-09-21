@@ -3,11 +3,13 @@ import { NavLink, Route, Routes } from "react-router-dom";
 import { api, ageSec, fmtG, fmtMoney, useLive, type Notice, type Status } from "./api.ts";
 import { K1Connection } from "./pages/K1Connection.tsx";
 import { Placeholder } from "./pages/Placeholder.tsx";
+import { K2Accounts } from "./pages/K2Accounts.tsx";
+import { K3Orders } from "./pages/K3Orders.tsx";
 
 const SCREENS = [
   { code: "K1", path: "/", title: "Bağlantı ve fiyat", sprint: 1 },
-  { code: "K2", path: "/hesaplar", title: "Rafineri hesapları", sprint: 2 },
-  { code: "K3", path: "/emirler", title: "Emir günlüğü", sprint: 2 },
+  { code: "K2", path: "/hesaplar", title: "Rafineri hesapları", sprint: 2, done: true },
+  { code: "K3", path: "/emirler", title: "Emir günlüğü", sprint: 2, done: true },
   { code: "K4", path: "/kasa", title: "Kasa talimatları", sprint: 3 },
   { code: "K5", path: "/hazine", title: "Hazine alım satımı", sprint: 3 },
   { code: "K6", path: "/teslimat", title: "Fiziksel teslimat", sprint: 4 },
@@ -25,7 +27,7 @@ export function App() {
         {SCREENS.map((s) => (
           <NavLink key={s.code} to={s.path} end={s.path === "/"}>
             <span className="code">{s.code}</span><span>{s.title}</span>
-            {s.sprint > 1 && <span className="sprint">Sprint {s.sprint}</span>}
+            {s.sprint > 1 && !(s as any).done && <span className="sprint">Sprint {s.sprint}</span>}
           </NavLink>
         ))}
       </nav>
@@ -33,8 +35,8 @@ export function App() {
       <main className="main">
         <Routes>
           <Route path="/" element={<K1Connection live={live} />} />
-          <Route path="/hesaplar" element={<Placeholder code="K2" title="Rafineri hesapları" sprint={2} text="Kasa hesabı alt kalemleri (kasada, kasaya konuluyor, sevkiyatta) ve cari hesap (altın, kur bazında para): KZ kaydı ile rafineriden gelen bakiye bilgisinin eşleşmesi (EŞİT / RECONCILE), fark satırları, anlık fotoğraf iste, RECONCILE çöz." />} />
-          <Route path="/emirler" element={<Placeholder code="K3" title="Emir günlüğü" sprint={2} text="Müşteri emri ↔ rafineri emri (client_order_id), fill fiyatı ve müşteri fiyatı, cevapsız emir kuyruğu (durum sorgusu, iptal), geç fill kararı." />} />
+          <Route path="/hesaplar" element={<K2Accounts live={live} />} />
+          <Route path="/emirler" element={<K3Orders live={live} />} />
           <Route path="/kasa" element={<Placeholder code="K4" title="Kasa talimatları" sprint={3} text="Giriş / çıkış talepleri ve durumları (talep, kabul, kasaya konuluyor, kasaya konuldu, red), Kasa Giriş / Çıkış Fişleri, mint / burn eşlemesi (BitGo), T+3 sayacı." />} />
           <Route path="/hazine" element={<Placeholder code="K5" title="Hazine alım satımı" sprint={3} text="Maker-checker: talep oluştur, onay matrisi, son onaycı canlı fiyatla gönderir; sonuç zinciri fill → kasa girişi / çıkışı → mint / burn." />} />
           <Route path="/teslimat" element={<Placeholder code="K6" title="Fiziksel teslimat" sprint={4} text="Müşteri itfa talebi → rafineriye talep → lojistik teklifi onayı → hazırlık, sevkiyat, takip no, teslim; DELIVERED olayında burn." />} />
@@ -75,14 +77,14 @@ function TopBar({ s, sse, refresh }: { s: Status | null; sse: boolean; refresh: 
       <div className="chip">
         <span className="l">Kasa hesabı (KZ kaydı)</span>
         <span className="v mono">{s ? fmtG(s.record.vault.in_vault_mg + s.record.vault.placing_mg + s.record.vault.shipping_mg) : "…"} g</span>
-        <span className="s">eşleşme {s?.record.match ?? ""}</span>
+        <span className="s">eşleşme <span className={`pill ${s?.record.match === "EŞİT" ? "ok" : s?.record.match === "RECONCILE" ? "bad" : "warn"}`}>{s?.record.match ?? ""}</span> · K1 {s?.checks.k1.ok ? "✓" : "✗"} · K2 {s?.checks.k2.ok ? "✓" : "✗"}</span>
       </div>
       <div className="chip">
         <span className="l">Cari hesap (KZ kaydı)</span>
         <span className="v mono">{s ? `${s.record.current_account.gold_mg >= 0 ? "+" : ""}${fmtG(s.record.current_account.gold_mg)} g` : "…"}</span>
         <span className="s">{s?.record.current_account.money.map((m) => `${m.ccy} ${fmtMoney(m.cents)}`).join(" · ")}</span>
       </div>
-      <button className="bell" onClick={() => setOpen((v) => !v)}>🔔 Bildirimler {s && s.unread > 0 && <span className="n">{s.unread}</span>}</button>
+      <button className="bell" onClick={() => setOpen((v) => !v)}>🔔 Bildirimler {s && s.unread > 0 && <span className="n">{s.unread}</span>}{s && (s.unanswered + s.lateFills) > 0 && <span className="n" style={{ background: "var(--warn)" }} title="cevapsız / geç fill">{s.unanswered + s.lateFills}</span>}</button>
       {open && (
         <div className="drawer">
           {items.length === 0 && <div className="item">Bildirim yok</div>}

@@ -2,34 +2,54 @@
  * Kanzasset çekirdeği (demo sunucusu).
  *   PORT=5000                 K ekranları API'si + canlı akış (SSE) + kz-web dist (varsa)
  *   AMR_WS_URL                rafineri fiyat soketi (varsayılan ws://localhost:4000/v1/prices)
+ *   AMR_HTTP_URL              rafineri REST tabanı (varsayılan ws adresinden türetilir: http://localhost:4000)
  *   KZ_API_KEY / KZ_API_SECRET  AMR'de tanımlı istemci (varsayılan kz-dev-key / kz-dev-secret)
+ *   KZ_DATA_DIR               kalıcı durum (KZ kaydı, emirler, olaylar) · varsayılan apps/kz-server/data
+ *   KZ_OPENING_MG             açılış devri: kasada Kanzasset adına duran gram (demo 20 kg = 20000000); AMR'de VAULT_OPENING_MG ile aynı olmalı
  */
 import Fastify from "fastify";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
+import { createHmac, timingSafeEqual } from "node:crypto";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { EventEmitter } from "node:events";
+import { PRICE_SOCKET, signingString, type Account, type EventEnvelope, type OrderResponse } from "@amr/contract";
 import { PriceClient } from "./priceClient.ts";
-import { DEFAULT_PRICING, quote } from "./pricing.ts";
+import { DEFAULT_PRICING, quote, type PricingParams } from "./pricing.ts";
+import { AmrClient } from "./amrClient.ts";
+import { JsonStore } from "./store.ts";
+import { checks, compare, emptyRecord, resolveWithSnapshot, type KzRecord } from "./record.ts";
+import { DEFAULT_ORDER_PARAMS, OrderDesk, type CustomerOrder, type OrderParams } from "./orders.ts";
 
 const PORT = Number(process.env.PORT ?? 5000);
 const AMR_WS_URL = process.env.AMR_WS_URL ?? "ws://localhost:4000/v1/prices";
+const AMR_HTTP_URL = process.env.AMR_HTTP_URL ?? AMR_WS_URL.replace(/^ws/, "http").replace(/\/v1\/prices$/, "");
+const API_KEY = process.env.KZ_API_KEY ?? "kz-dev-key";
+const API_SECRET = process.env.KZ_API_SECRET ?? "kz-dev-secret";
+const DATA_DIR = process.env.KZ_DATA_DIR ?? resolve(import.meta.dirname, "../data");
+const OPENING_MG = Number(process.env.KZ_OPENING_MG ?? 0);
 
 const bus = new EventEmitter();
 bus.setMaxListeners(100);
 
-// ---- durum ----
-const client = new PriceClient(AMR_WS_URL, process.env.KZ_API_KEY ?? "kz-dev-key", process.env.KZ_API_SECRET ?? "kz-dev-secret");
-const market = { manualStop: false as boolean, manualReason: null as string | null };
-const pricing = { ...DEFAULT_PRICING };
+// ---- kalıcı durum ----
+interface Notice { id: number; type: string; title: string; body?: string; ts: string; read: boolean }
+interface EventLog { event_id: string; type: string; ts: string; received_ts: string; seq?: number; summary: string }
+interface State { record: KzRecord; orders: CustomerOrder[]; notices: Notice[]; noticeId: number; events: EventLog[]; pricing: PricingParams; orderParams: OrderParams; market: { manualStop: boolean; manualReason: string | null } }
+const store = new JsonStore<State>(resolve(DATA_DIR, "kz-state.json"), () => ({
+  record: emptyRecord(OPENING_MG), orders: [], notices: [], noticeId: 0, events: [], pricing: { ...DEFAULT_PRICING }, orderParams: { ...DEFAULT_ORDER_PARAMS }, market: { manualStop: false, manualReason: null },
+}));
+const S = store.data;
 const ticks: { seq: number; ts: string; tradable: boolean; prices: unknown }[] = [];
-const notices: { id: number; type: string; title: string; body?: string; ts: string; read: boolean }[] = [];
-let noticeId = 0;
 
-const tradingOpen = () => client.priceOk && !market.manualStop;
+// ---- bağlantılar ----
+const client = new PriceClient(AMR_WS_URL, API_KEY, API_SECRET);
+const amr = new AmrClient(AMR_HTTP_URL, API_KEY, API_SECRET);
+
+const tradingOpen = () => client.priceOk && !S.market.manualStop;
 const tradingReason = () => {
-  if (market.manualStop) return `elle durduruldu: ${market.manualReason ?? ""}`;
+  if (S.market.manualStop) return `elle durduruldu: ${S.market.manualReason ?? ""}`;
   const s = client.state;
   if (s.connection !== "SUBSCRIBED") return "rafineri soketi bağlı değil";
   if (s.stale) return "fiyat bayat (10 sn mesaj yok)";
@@ -38,23 +58,40 @@ const tradingReason = () => {
   return "";
 };
 
-const status = () => ({
-  socket: { ...client.state },
-  trading: { open: tradingOpen(), reason: tradingReason(), manualStop: market.manualStop, manualReason: market.manualReason },
-  quotes: client.state.lastPrices?.map((p) => quote(p, pricing)) ?? [],
-  pricing,
-  unread: notices.filter((n) => !n.read).length,
-  // KZ kaydı (Sprint 2'de dolar): rafineri hesaplarının Kanzasset'teki karşılığı
-  record: { vault: { in_vault_mg: 0, placing_mg: 0, shipping_mg: 0 }, current_account: { gold_mg: 0, money: [{ ccy: "USD", cents: 0 }, { ccy: "EUR", cents: 0 }, { ccy: "AED", cents: 0 }] }, match: "EŞİT" },
-  ts: new Date().toISOString(),
-});
-
 const notify = (type: string, title: string, body?: string) => {
-  const n = { id: ++noticeId, type, title, body, ts: new Date().toISOString(), read: false };
-  notices.unshift(n);
-  if (notices.length > 200) notices.pop();
+  const n: Notice = { id: ++S.noticeId, type, title, body, ts: new Date().toISOString(), read: false };
+  S.notices.unshift(n);
+  if (S.notices.length > 300) S.notices.pop();
+  store.save();
   bus.emit("event", { kind: "notice", ...n });
 };
+const changed = () => { store.save(); bus.emit("event", { kind: "status", status: status() }); };
+
+const desk = new OrderDesk({
+  amr,
+  priceState: () => client.state,
+  tradingOpen: () => ({ open: tradingOpen(), reason: tradingReason() }),
+  pricing: () => S.pricing,
+  params: () => S.orderParams,
+  record: () => S.record,
+  onChange: () => { S.orders = desk.orders; changed(); },
+  notify,
+}, S.orders);
+
+const status = () => ({
+  socket: { ...client.state },
+  rest: { url: AMR_HTTP_URL, events_received: S.events.length, last_event_ts: S.events[0]?.received_ts ?? null },
+  trading: { open: tradingOpen(), reason: tradingReason(), manualStop: S.market.manualStop, manualReason: S.market.manualReason },
+  quotes: client.state.lastPrices?.map((p) => quote(p, S.pricing)) ?? [],
+  pricing: S.pricing,
+  orderParams: S.orderParams,
+  unread: S.notices.filter((n) => !n.read).length,
+  record: S.record,
+  checks: checks(S.record),
+  unanswered: desk.unanswered().length,
+  lateFills: desk.lateFills().length,
+  ts: new Date().toISOString(),
+});
 
 let lastOpen: boolean | null = null;
 client.on("state", () => {
@@ -66,42 +103,143 @@ client.on("state", () => {
 client.on("prices", (m: any) => {
   ticks.unshift({ seq: m.seq, ts: m.ts, tradable: m.tradable, prices: m.prices });
   if (ticks.length > 200) ticks.pop();
-  bus.emit("event", { kind: "tick", seq: m.seq, ts: m.ts, tradable: m.tradable, prices: m.prices, quotes: m.prices.map((p: any) => quote(p, pricing)) });
+  bus.emit("event", { kind: "tick", seq: m.seq, ts: m.ts, tradable: m.tradable, prices: m.prices, quotes: m.prices.map((p: any) => quote(p, S.pricing)) });
 });
 client.on("notice", (n: { type: string; title: string; body?: string }) => notify(n.type, n.title, n.body));
 
 // ---- API ----
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
 await app.register(cors, { origin: true });
+// ham gövde (olay imzası için)
+app.addContentTypeParser("application/json", { parseAs: "string" }, (req, body, done) => {
+  (req as any).rawBody = body as string;
+  try { done(null, body === "" ? undefined : JSON.parse(body as string)); } catch (e) { done(e as Error, undefined); }
+});
 
 app.get("/api/refinery/status", async () => status());
 app.get<{ Querystring: { limit?: string } }>("/api/refinery/ticks", async (req) => ticks.slice(0, Math.min(200, Number(req.query.limit ?? 50))));
 app.post<{ Body: { reason?: string } }>("/api/trading/stop", async (req, reply) => {
   const reason = req.body?.reason?.trim();
   if (!reason) return reply.code(400).send({ error: "gerekçe zorunlu" });
-  market.manualStop = true; market.manualReason = reason;
+  S.market.manualStop = true; S.market.manualReason = reason;
   notify("trading.manual_stop", "Müşteri işlemleri elle durduruldu", reason);
-  bus.emit("event", { kind: "status", status: status() });
+  changed();
   return status();
 });
 app.post("/api/trading/start", async () => {
-  market.manualStop = false; market.manualReason = null;
+  S.market.manualStop = false; S.market.manualReason = null;
   notify("trading.manual_start", "Müşteri işlemleri elle başlatıldı");
-  bus.emit("event", { kind: "status", status: status() });
+  changed();
   return status();
 });
-app.get("/api/notifications", async () => ({ unread: notices.filter((n) => !n.read).length, items: notices.slice(0, 50) }));
+app.get("/api/notifications", async () => ({ unread: S.notices.filter((n) => !n.read).length, items: S.notices.slice(0, 50) }));
 app.post<{ Params: { id: string } }>("/api/notifications/:id/read", async (req) => {
-  const n = notices.find((x) => x.id === Number(req.params.id));
+  const n = S.notices.find((x) => x.id === Number(req.params.id));
   if (n) n.read = true;
-  bus.emit("event", { kind: "status", status: status() });
+  changed();
   return { ok: true };
 });
-app.put<{ Body: Partial<typeof pricing> }>("/api/pricing", async (req) => {
-  Object.assign(pricing, req.body ?? {});
-  bus.emit("event", { kind: "status", status: status() });
-  return pricing;
+app.put<{ Body: Partial<PricingParams> }>("/api/pricing", async (req) => { Object.assign(S.pricing, req.body ?? {}); changed(); return S.pricing; });
+app.put<{ Body: Partial<OrderParams> }>("/api/order-params", async (req) => { Object.assign(S.orderParams, req.body ?? {}); changed(); return S.orderParams; });
+
+// ---- K3: emirler ----
+app.get<{ Querystring: { limit?: string } }>("/api/orders", async (req) => ({ items: desk.list(Math.min(500, Number(req.query.limit ?? 200))), unanswered: desk.unanswered(), lateFills: desk.lateFills() }));
+app.get<{ Params: { id: string } }>("/api/orders/:id", async (req, reply) => desk.get(req.params.id) ?? reply.code(404).send({ error: "emir yok" }));
+/** Müşteri emri (demo: müşteri ekranı yerine K3'teki deneme kutusu). */
+app.post<{ Body: { side: "BUY" | "SELL"; qty_mg: number; ccy: "USD" | "EUR" | "AED"; customer_ref?: string } }>("/api/orders", async (req, reply) => {
+  try { return await desk.place(req.body); } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
 });
+app.post<{ Params: { id: string }; Body: { decision: "CLOSE" | "CARRY" } }>("/api/orders/:id/decision", async (req, reply) => {
+  try { return await desk.decide(req.params.id, req.body.decision); } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+});
+app.post<{ Params: { id: string } }>("/api/orders/:id/resolve", async (req, reply) => {
+  const o = desk.get(req.params.id);
+  if (!o) return reply.code(404).send({ error: "emir yok" });
+  await desk.resolveUnanswered(o);
+  return o;
+});
+
+// ---- K2: rafineri hesapları ----
+app.get("/api/record", async () => ({ record: S.record, checks: checks(S.record) }));
+app.post("/api/record/snapshot", async (req, reply) => {
+  try {
+    const acc = await amr.account();
+    const r = compare(S.record, acc);
+    changed();
+    if (S.record.match === "RECONCILE") notify("account.reconcile", "Anlık fotoğraf: uyuşmazlık", `${S.record.diffs.length} fark satırı`);
+    return { account: acc, match: S.record.match, diffs: S.record.diffs, seqGap: r.seqGap };
+  } catch (e) { return reply.code(502).send({ error: `rafineriye ulaşılamadı: ${(e as Error).message}` }); }
+});
+app.post<{ Body: { explanation?: string } }>("/api/record/resolve", async (req, reply) => {
+  const explanation = req.body?.explanation?.trim();
+  if (!explanation) return reply.code(400).send({ error: "fark açıklaması zorunlu" });
+  try {
+    const acc = await amr.account();
+    resolveWithSnapshot(S.record, acc, explanation);
+    notify("account.resolved", "RECONCILE çözüldü", explanation);
+    changed();
+    return { record: S.record };
+  } catch (e) { return reply.code(502).send({ error: `rafineriye ulaşılamadı: ${(e as Error).message}` }); }
+});
+// demo: KZ kaydını bilerek kaydırır (eşleşme uyuşmazlığı senaryosu S6). KZ_DEMO=0 ile kapanır.
+if (process.env.KZ_DEMO !== "0") {
+  app.post<{ Body: { gold_mg?: number; usd_cents?: number } }>("/api/debug/record-skew", async (req) => {
+    S.record.current_account.gold_mg += Number(req.body?.gold_mg ?? 0);
+    const usd = S.record.current_account.money.find((m) => m.ccy === "USD")!; usd.cents += Number(req.body?.usd_cents ?? 0);
+    notify("debug.skew", "Demo: KZ kaydı bilerek kaydırıldı", `altın ${req.body?.gold_mg ?? 0} mg · USD ${req.body?.usd_cents ?? 0} cent`);
+    changed();
+    return S.record;
+  });
+}
+app.get<{ Querystring: { from?: string; to?: string } }>("/api/record/statement", async (req, reply) => {
+  try { return await amr.statement(req.query.from, req.query.to); } catch (e) { return reply.code(502).send({ error: (e as Error).message }); }
+});
+app.get<{ Params: { id: string } }>("/api/documents/:id", async (req, reply) => {
+  try { return await amr.document(req.params.id); } catch (e) { return reply.code(502).send({ error: (e as Error).message }); }
+});
+
+// ---- olaylar (webhook, AMR → KZ) ----
+app.get("/api/events", async () => S.events.slice(0, 100));
+app.post("/api/events", async (req, reply) => {
+  const raw = ((req as any).rawBody as string) ?? "";
+  const ts = req.headers["x-timestamp"] as string | undefined;
+  const sig = req.headers["x-signature"] as string | undefined;
+  const key = req.headers["x-api-key"] as string | undefined;
+  if (!ts || !sig || key !== API_KEY) return reply.code(401).send({ error: "AUTH_MISSING" });
+  if (!Number.isFinite(Date.parse(ts)) || Math.abs(Date.now() - Date.parse(ts)) > PRICE_SOCKET.authSkewMs) return reply.code(401).send({ error: "AUTH_CLOCK" });
+  const expected = createHmac("sha256", API_SECRET).update(signingString(ts, "POST", "/api/events", raw)).digest("hex");
+  const a = Buffer.from(expected, "hex"); const b = Buffer.from(sig, "hex");
+  if (a.length !== b.length || !timingSafeEqual(a, b)) return reply.code(401).send({ error: "AUTH_BAD_SIGNATURE" });
+  const ev = req.body as EventEnvelope;
+  if (S.events.some((e) => e.event_id === ev.event_id)) return { ok: true, duplicate: true };
+  const summary = await handleEvent(ev);
+  S.events.unshift({ event_id: ev.event_id, type: ev.type, ts: ev.ts, received_ts: new Date().toISOString(), seq: ev.seq, summary });
+  if (S.events.length > 500) S.events.pop();
+  changed();
+  return { ok: true };
+});
+
+async function handleEvent(ev: EventEnvelope): Promise<string> {
+  const d = ev.data as any;
+  switch (ev.type) {
+    case "order.filled": case "order.cancelled": case "order.rejected": {
+      const r = d as OrderResponse;
+      const o = desk.get(r.client_order_id);
+      if (o && (o.status === "UNANSWERED" || o.status === "SENT")) { await desk.onResponse(o, r, true); return `${r.client_order_id} → ${r.status} (olayla kapandı)`; }
+      return `${r.client_order_id} ${r.status}`;
+    }
+    case "price.halt": return `yayın durdu: ${d?.reason ?? ""}`;
+    case "price.resume": return "yayın açıldı";
+    case "settlement.requested": notify("settlement.requested", "Rafineri mahsuplaşma talep etti", d?.reason ?? ""); return `mahsuplaşma talebi (${d?.trigger ?? ""})`;
+    case "account.reconcile": notify("account.reconcile", "Rafineri uyuşmazlık bildirdi", JSON.stringify(d)); return "account.reconcile";
+    default: {
+      if (ev.account) { compare(S.record, ev.account as Account); }
+      notify(`event.${ev.type}`, `Rafineri olayı: ${ev.type}`, typeof d === "object" ? JSON.stringify(d).slice(0, 200) : String(d ?? ""));
+      return ev.type;
+    }
+  }
+}
+
 app.get("/api/stream", async (req, reply) => {
   reply.raw.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive", "access-control-allow-origin": "*" });
   const write = (ev: unknown) => reply.raw.write(`data: ${JSON.stringify(ev)}\n\n`);
@@ -122,4 +260,4 @@ if (existsSync(webDist)) {
 
 client.start();
 await app.listen({ port: PORT, host: "0.0.0.0" });
-app.log.info(`Kanzasset çekirdeği: http://localhost:${PORT} · rafineri soketi ${AMR_WS_URL}`);
+app.log.info(`Kanzasset çekirdeği: http://localhost:${PORT} · rafineri soketi ${AMR_WS_URL} · REST ${AMR_HTTP_URL}`);
