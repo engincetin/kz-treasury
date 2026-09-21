@@ -14,7 +14,9 @@
     "build": "npm run build -w @kz/web",
     "start": "npm run start -w @kz/server",
     "test": "npm test -w @kz/server",
-    "contract:sync": "scripts/contract-sync.sh"
+    "contract:sync": "scripts/contract-sync.sh",
+    "demo": "node scripts/demo.mjs",
+    "demo:server": "KZ_OPENING_MG=20000000 npm run start -w @kz/server"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",

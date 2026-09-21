@@ -106,6 +106,12 @@ export class OrderDesk {
     const level = ps.lastPrices?.find((p) => p.ccy === input.ccy);
     if (!level || !ps.seq) throw new Error("fiyat yok");
     if (!Number.isInteger(input.qty_mg) || input.qty_mg < 1) throw new Error("miktar 0,001 g katı ve en az 0,001 g olmalı");
+    // satışta müşteri elindeki tokenden fazlasını satamaz: C = A − S − E
+    if (input.side === "SELL") {
+      const rec = this.d.record();
+      const customerMg = rec.stock.a_mg - rec.stock.s_mg - (rec.stock.e_mg ?? 0);
+      if (input.qty_mg > customerMg) throw new Error(`müşteride ${fmtG(customerMg)} g AGOLD var, ${fmtG(input.qty_mg)} g satılamaz`);
+    }
     const params = this.d.params();
     const q = quote(level, this.d.pricing());
     const clientPx = input.side === "BUY" ? q.clientBuy : q.clientSell;
