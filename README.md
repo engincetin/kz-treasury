@@ -13,6 +13,9 @@ Kanzasset (KZ) tarafında çalışan hazine çekirdeği: rafinerinin (AMR uygula
 - Emirler (03, 04): müşteri emri → rafineri emri birebir (`client_order_id`), `quote_seq`, slippage limiti, FOK, zaman sınırı. Cevapsız emir: kısa bekleme → durum sorgusu → açıksa iptal (kesin cevap). Geç fill → pozisyon kararı (ters emirle kapat / envanterde taşı).
 - KZ kaydı (02): her fill KZ kaydına işlenir ve rafineriden gelen bakiye bilgisiyle karşılaştırılır. Eşit değilse RECONCILE, mint ve kasa çıkışı bloke, açıklama ile çözülür. Kontroller K1 `A ≤ V`, K2 `S + T = K` üst şeritte.
 - Rafineri olayları (webhook) `POST /api/events` ile alınır (HMAC doğrulanır, `event_id` ile tekrar ayıklanır).
+- Kasa talimatları (05, 06): girişte önce rafinerinin **Kasa Giriş Fişi** gelir, sonra mint yapılır; çıkışta önce **burn**, sonra talep. Bu sıra sayesinde `A ≤ V` hiçbir an bozulmaz. Mint uyuşmazlıkta (RECONCILE) ve kasaya koyma vadesi geçtiğinde (T+3) bloke olur; bloke kalkınca bekleyen mint'ler işlenir.
+- Büyük alış (07): teslim sonrası stok tabanın altına inecekse fiyat fill'de kilitlenir, eksik kadar kasa girişi istenir ve mint tamamlanınca **tek seferde** teslim edilir. Büyük satış (08): stok tavanı aşılırsa fazla burn edilir ve kasa çıkışı istenir.
+- Hazine alım satımı (09): maker-checker, onay matrisi gram bazında (≤5 kg 1, ≤15 kg 2, üstü 3); son onaycı canlı fiyatla gönderir. Envanter hedefi `K` yalnız burada değişir.
 
 ## Yapı
 
@@ -57,6 +60,8 @@ Test: `npm test`. Sözleşme güncelle: `npm run contract:sync` (amr-app yan kla
 Emirler: `GET /api/orders` · `POST /api/orders {side, qty_mg, ccy}` (müşteri emri; demo kutusu) · `GET /api/orders/:id` · `POST /api/orders/:id/decision {decision: CLOSE | CARRY}` · `POST /api/orders/:id/resolve`.
 KZ kaydı: `GET /api/record` · `POST /api/record/snapshot` · `POST /api/record/resolve {explanation}` · `GET /api/record/statement` · `GET /api/documents/:id`.
 Olaylar: `POST /api/events` (rafineri çağırır, HMAC) · `GET /api/events`.
+Kasa talimatları (K4): `GET /api/vault` · `GET /api/vault/:ref` · `POST /api/vault {type, qty_mg, reason}` (elle, gerekçeli) · `POST /api/vault/:ref/retry` (tavan yüzünden duran talep) · `POST /api/vault/flush-mints` · `GET /api/vault/statement` (rafinerinin günlük kasa ekstresi).
+Hazine alım satımı (K5): `GET /api/treasury` · `POST /api/treasury {side, qty_mg, ccy, maker}` · `POST /api/treasury/:id/approve {approver}` · `POST /api/treasury/:id/cancel` · `GET /api/treasury-approvals?qty_mg=` · `PUT /api/stock-params`.
 
 ## Sprint planı
 
@@ -64,7 +69,7 @@ Olaylar: `POST /api/events` (rafineri çağırır, HMAC) · `GET /api/events`.
 |---|---|---|
 | 1 ✓ | soket istemcisi, bayatlık ve yeniden bağlanma, müşteri fiyatı, işlemleri durdur / başlat, bildirimler | K1 |
 | 2 ✓ | emirler (stoktan alış / satış), bakiye bilgisi ↔ KZ kaydı eşleşmesi, RECONCILE çözümü, cevapsız emir ve geç fill kararı, olay alımı | K2, K3 |
-| 3 | kasa talimatları + fişler, büyük alış / satış, hazine alım satımı (maker-checker) | K4, K5 |
+| 3 ✓ | kasa talimatları + fişler + mint / burn eşlemesi, büyük alış / satış, hazine alım satımı (maker-checker) | K4, K5 |
 | 4 | fiziksel teslimat, rafinasyon (katalog, teklif, onay) | K6, K7 |
 | 5 | mahsuplaşma (kesim saati otomatik, talep iki yönlü), parametreler | K8, K9 |
 | 6 | demo senaryoları S0..S9 (KZ simülatörü), kullanım kılavuzu, teslim paketi | |

@@ -1,5 +1,5 @@
 /**
- * Emir masası (Akışlar 03 Stoktan alış, 04 Stoktan satış, Durum · Cevapsız emir; K3).
+ * Emir masası (Akışlar 03 Stoktan alış, 04 Stoktan satış, 07 Büyük alış, 08 Büyük satış, Durum · Cevapsız emir; K3).
  *
  *  Müşteri emri → rafineri emri birebir (0,001 g), client_order_id = müşteri emri id'si.
  *  Sıra (03): bloke → rafineride alış emri → teslim → tahsilat. (04): AGOLD bloke → satış emri → önce ödeme → token stoğa.
@@ -7,13 +7,19 @@
  *  quote_seq: emrin dayandığı tick · limit_px: slippage koruması (alışta ask × (1 + s), satışta bid × (1 − s)) · FOK · time_limit_ms.
  *  Cevapsız: zaman sınırı + kısa bekleme → durum sorgusu → açıksa iptal (kesin cevap). Geç fill → pozisyon kararı (kapat / taşı).
  *  Her fill KZ kaydına işlenir ve bakiye bilgisiyle karşılaştırılır (02).
+ *
+ *  Büyük alış (07): teslim sonrası stok tabanın altına inecekse fiyat fill'de kilitlenir, eksik kadar kasa girişi
+ *  istenir (mint_policy: SHORTFALL eksik kısım, FULL_ORDER emrin tamamı), mint tamamlanınca TEK SEFERDE teslim edilir.
+ *  Kısmi teslim yoktur; müşteriye "emriniz yeni ihraçla karşılandı" ifşası yapılır.
+ *  Büyük satış (08): tokenler stoğa döner, stok tavanı aşılırsa fazla (S − hedef) burn edilir ve kasa çıkışı istenir.
  */
 import { randomUUID } from "node:crypto";
 import type { Account, Ccy, OrderRequest, OrderResponse } from "@amr/contract";
 import { AmrClient, AmrHttpError, AmrTimeout } from "./amrClient.ts";
-import { applyFill, compare, type KzRecord } from "./record.ts";
+import { applyDelivery, applyFill, compare, type KzRecord } from "./record.ts";
 import { quote, type PricingParams } from "./pricing.ts";
 import type { PriceClientState } from "./priceClient.ts";
+import type { StockParams, VaultDesk, VaultInstruction } from "./vault.ts";
 
 export interface OrderParams {
   slippageBps: number; // 100 = %1 (aralık %0,2 ile %5)
@@ -23,7 +29,9 @@ export interface OrderParams {
 }
 export const DEFAULT_ORDER_PARAMS: OrderParams = { slippageBps: 100, timeLimitMs: 3000, unansweredGraceMs: 1000, minOrderUsdCents: 1000 };
 
-export type CustomerStatus = "BLOKE" | "TESLİM EDİLDİ" | "ÖDENDİ" | "İPTAL" | "BEKLİYOR";
+export type CustomerStatus = "BLOKE" | "TESLİM BEKLİYOR" | "TESLİM EDİLDİ" | "ÖDENDİ" | "İPTAL" | "BEKLİYOR";
+/** STOK: stoktan alış / satış (03, 04) · BÜYÜK_ALIŞ: 07 (önce mint) · BÜYÜK_SATIŞ: 08 (fazlayı burn). */
+export type OrderFlow = "STOK" | "BÜYÜK_ALIŞ" | "BÜYÜK_SATIŞ";
 export interface CustomerOrder {
   id: string; // = client_order_id
   ts: string;
@@ -47,12 +55,19 @@ export interface CustomerOrder {
   match?: "EŞİT" | "RECONCILE";
   decision?: "CLOSE" | "CARRY";
   decision_order_id?: string;
+  /** Hangi akış: stoktan (03, 04) ya da büyük alış / satış (07, 08). */
+  flow?: OrderFlow;
+  /** 07 / 08 zincirinin kasa talimatı referansı. */
+  vault_ref?: string;
+  /** 07: kasa girişi istenen eksik gram · 08: burn edilen fazla gram. */
+  chain_mg?: number;
   timeline: { ts: string; text: string }[];
 }
 
 const toCents = (px: string) => Math.round(Number(px) * 100);
 const fromCents = (c: number) => (c / 100).toFixed(2);
 const amountCents = (pxCents: number, qtyMg: number) => Math.round((pxCents * qtyMg) / 1000);
+const fmtG = (mg: number) => (mg / 1000).toFixed(3);
 
 export function limitPx(side: "BUY" | "SELL", refineryPx: string, slippageBps: number): string {
   const c = toCents(refineryPx);
@@ -68,6 +83,10 @@ export interface DeskDeps {
   record: () => KzRecord;
   onChange: () => void; // kalıcılık + canlı akış
   notify: (type: string, title: string, body?: string) => void;
+  /** Stok tabanı / tavanı / hedefi ve mint politikası (07, 08). */
+  stock: () => StockParams;
+  /** Kasa talimatları masası: büyük alışta kasa girişi, büyük satışta kasa çıkışı. */
+  vault: () => VaultDesk;
 }
 
 export class OrderDesk {
@@ -164,16 +183,33 @@ export class OrderDesk {
       if (late) {
         // müşteriye teslim / ödeme yok (iptal edildi); rafineri bacağı bağlayıcı → pozisyon
         o.status = "LATE_FILL"; o.customer_status = "İPTAL";
-        applyFill(rec, o.side, o.qty_mg, o.ccy, r.fill.amount_cents);
-        rec.stock.s_mg += o.side === "BUY" ? o.qty_mg : -o.qty_mg; // stok değişmedi: teslim yok
+        applyFill(rec, o.side, o.qty_mg, o.ccy, r.fill.amount_cents, { deliver: false }); // teslim yok: stok değişmez
         this.log(o, `GEÇ FILL @ ${r.fill.px} · müşteriye teslim yok · pozisyon kararı bekliyor (kapat / taşı)`);
         this.d.notify("order.late_fill", "Geç fill: pozisyon kararı gerekli", `${o.id} · ${o.side} ${(o.qty_mg / 1000).toFixed(3)} g @ ${r.fill.px}`);
       } else {
         o.status = "FILLED";
-        applyFill(rec, o.side, o.qty_mg, o.ccy, r.fill.amount_cents);
+        const sp = this.d.stock();
+        const stockBefore = rec.stock.s_mg;
+        // 07: teslim sonrası stok tabanın altına inecek mi? Eksik kadar (ya da emrin tamamı) yeni ihraç gerekir.
+        const shortfall = o.side === "BUY" && stockBefore - o.qty_mg < sp.floorMg
+          ? (sp.mintPolicy === "FULL_ORDER" ? o.qty_mg : o.qty_mg - (stockBefore - sp.floorMg))
+          : 0;
+
+        applyFill(rec, o.side, o.qty_mg, o.ccy, r.fill.amount_cents, { deliver: shortfall === 0 });
         this.log(o, `FILLED @ ${r.fill.px} ${o.ccy} · bedel ${fromCents(r.fill.amount_cents)}${r.allocation_certificate ? ` · Tahsis Belgesi ${r.allocation_certificate.doc_id}` : ""}`);
-        if (o.side === "BUY") { o.customer_status = "TESLİM EDİLDİ"; this.log(o, `${(o.qty_mg / 1000).toFixed(3)} AGOLD hazine → müşteri cüzdanı (önce teslim) · tahsilat müşteri hs → şirket hs ${fromCents(o.client_total_cents)} ${o.ccy}`); }
-        else { o.customer_status = "ÖDENDİ"; this.log(o, `önce ödeme: şirket hs → müşteri hs ${fromCents(o.client_total_cents)} ${o.ccy} · ${(o.qty_mg / 1000).toFixed(3)} AGOLD hazineye`); }
+        if (r.account) await this.reconcile(o, r.account);
+
+        if (shortfall > 0) await this.bigBuy(o, shortfall, stockBefore, sp);
+        else if (o.side === "BUY") {
+          o.flow = "STOK"; o.customer_status = "TESLİM EDİLDİ";
+          this.log(o, `${fmtG(o.qty_mg)} AGOLD hazine → müşteri cüzdanı (önce teslim) · tahsilat müşteri hs → şirket hs ${fromCents(o.client_total_cents)} ${o.ccy}`);
+        } else {
+          o.customer_status = "ÖDENDİ";
+          this.log(o, `önce ödeme: şirket hs → müşteri hs ${fromCents(o.client_total_cents)} ${o.ccy} · ${fmtG(o.qty_mg)} AGOLD hazineye`);
+          await this.bigSell(o, sp); // 08: stok tavanı aşıldıysa fazlayı burn et ve kasa çıkışı iste
+        }
+        this.d.onChange();
+        return;
       }
       if (r.account) await this.reconcile(o, r.account);
     } else if (r.status === "REJECTED") {
@@ -189,6 +225,65 @@ export class OrderDesk {
     }
     this.d.onChange();
   }
+
+  /**
+   * 07 Büyük alış: fiyat fill'de kilitlendi, teslim mint'ten sonra. Eksik kadar kasa girişi istenir;
+   * mint tamamlanınca `deliverPending` tek seferde teslim eder. Kısmi teslim yoktur.
+   */
+  private async bigBuy(o: CustomerOrder, shortfallMg: number, stockBefore: number, sp: StockParams) {
+    o.flow = "BÜYÜK_ALIŞ";
+    o.customer_status = "TESLİM BEKLİYOR";
+    o.chain_mg = shortfallMg;
+    this.log(o, `stok tabanı: S ${fmtG(stockBefore)} − emir ${fmtG(o.qty_mg)} < taban ${fmtG(sp.floorMg)} → eksik ${fmtG(shortfallMg)} g (${sp.mintPolicy})`);
+    this.log(o, `müşteriye: fiyat kilitlendi, teslim hazırlanıyor · ifşa "emriniz yeni ihraçla karşılandı"`);
+    this.d.notify("order.big_buy", "Büyük alış: yeni ihraç gerekiyor", `${o.id} · emir ${fmtG(o.qty_mg)} g · kasa girişi ${fmtG(shortfallMg)} g`);
+    try {
+      const inst = await this.d.vault().requestIn(shortfallMg, "BIG_BUY", { relatedId: o.id });
+      o.vault_ref = inst.ref;
+      this.log(o, `kasa girişi talebi ${inst.ref} · ${fmtG(shortfallMg)} g · durum ${inst.status}`);
+      if (inst.minted) this.deliverPending(inst); // otomatik kabul: zincir aynı anda kapandı
+    } catch (e) {
+      this.log(o, `kasa girişi talebi kurulamadı: ${(e as Error).message} · teslim bekliyor`);
+      this.d.notify("order.big_buy_error", "Büyük alışta kasa girişi kurulamadı", `${o.id}: ${(e as Error).message}`);
+    }
+  }
+
+  /** 08 Büyük satış: tokenler stoğa döndü; tavan aşıldıysa fazla (S − hedef) burn edilir ve kasa çıkışı istenir. */
+  private async bigSell(o: CustomerOrder, sp: StockParams) {
+    const rec = this.d.record();
+    if (rec.stock.s_mg <= sp.ceilingMg) { o.flow = "STOK"; return; }
+    const excess = rec.stock.s_mg - sp.targetMg;
+    o.flow = "BÜYÜK_SATIŞ";
+    o.chain_mg = excess;
+    this.log(o, `stok tavanı: S ${fmtG(rec.stock.s_mg)} > tavan ${fmtG(sp.ceilingMg)} → fazla ${fmtG(excess)} g (hedef ${fmtG(sp.targetMg)})`);
+    this.d.notify("order.big_sell", "Büyük satış: stok tavanı aşıldı", `${o.id} · fazla ${fmtG(excess)} g burn edilip kasa çıkışı istenecek`);
+    try {
+      const inst = await this.d.vault().requestOut(excess, "BIG_SELL", { relatedId: o.id });
+      o.vault_ref = inst.ref;
+      this.log(o, `burn ${fmtG(excess)} g · kasa çıkışı talebi ${inst.ref} · durum ${inst.status}`);
+    } catch (e) {
+      this.log(o, `kasa çıkışı talebi kurulamadı: ${(e as Error).message}`);
+      this.d.notify("order.big_sell_error", "Büyük satışta kasa çıkışı kurulamadı", `${o.id}: ${(e as Error).message}`);
+    }
+  }
+
+  /**
+   * Mint tamamlandı: büyük alışın teslim adımı. Tek seferde teslim, sonra tahsilat.
+   * Kasa talimatları masası mint'ten sonra çağırır (elle kabulde olay geldiğinde).
+   */
+  deliverPending(inst: VaultInstruction) {
+    const o = inst.related_id ? this.get(inst.related_id) : undefined;
+    if (!o || o.flow !== "BÜYÜK_ALIŞ" || o.customer_status !== "TESLİM BEKLİYOR") return;
+    applyDelivery(this.d.record(), "BUY", o.qty_mg);
+    o.customer_status = "TESLİM EDİLDİ";
+    this.log(o, `mint tamam (${inst.ref}) · TEK SEFERDE teslim ${fmtG(o.qty_mg)} AGOLD → müşteri cüzdanı · S ${fmtG(this.d.record().stock.s_mg)}`);
+    this.log(o, `tahsilat müşteri hs → şirket hs ${fromCents(o.client_total_cents)} ${o.ccy} · DELIVERED`);
+    this.d.notify("order.big_buy_delivered", "Büyük alış teslim edildi", `${o.id} · ${fmtG(o.qty_mg)} g`);
+    this.d.onChange();
+  }
+
+  /** Teslim bekleyen büyük alışlar (mint bloke ya da rafineri kabulü bekleniyor). */
+  awaitingDelivery() { return this.orders.filter((o) => o.customer_status === "TESLİM BEKLİYOR"); }
 
   /** Eşleşme kuralı: KZ kaydı == bakiye bilgisi. seq boşluğunda anlık fotoğraf. */
   private async reconcile(o: CustomerOrder, acc: Account) {
@@ -225,8 +320,7 @@ export class OrderDesk {
     const req: OrderRequest = { client_order_id: `kz-close-${o.id.slice(3)}`, side, qty_mg: o.qty_mg, ccy: o.ccy, quote_seq: ps.seq, limit_px: limitPx(side, px, this.d.params().slippageBps), tif: "FOK", time_limit_ms: this.d.params().timeLimitMs };
     const r = await this.d.amr.placeOrder(req, this.d.params().timeLimitMs + 2000);
     if (r.status === "FILLED" && r.fill) {
-      applyFill(rec, side, o.qty_mg, o.ccy, r.fill.amount_cents);
-      rec.stock.s_mg += side === "BUY" ? o.qty_mg : -o.qty_mg; // hazine emri: stok değişmez
+      applyFill(rec, side, o.qty_mg, o.ccy, r.fill.amount_cents, { deliver: false }); // hazine emri: müşteri yok, stok değişmez
       if (r.account) compare(rec, r.account);
       o.decision = "CLOSE"; o.decision_order_id = r.order_id;
       const pnl = (o.side === "BUY" ? toCents(r.fill.px) - toCents(o.refinery!.fill!.px) : toCents(o.refinery!.fill!.px) - toCents(r.fill.px)) * o.qty_mg / 1000;

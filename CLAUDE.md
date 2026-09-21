@@ -33,6 +33,15 @@ Bu repo Kanzasset (KZ) tarafındaki hazine çekirdeğidir. Rafineri tarafı `amr
 - `record.ts`: `applyFill` (T, P, S) → `compare(account)`: fark yoksa EŞİT ve seq alınır; varsa RECONCILE ve `blocked = {mint, vault_out}`. `resolveWithSnapshot` düzeltme kaydı tutar. Kontroller `checks()`.
 - Durum `KZ_DATA_DIR/kz-state.json` içinde (JsonStore); yeniden başlatmada emirler ve KZ kaydı kalır.
 
+## Kasa talimatları (vault.ts) ve hazine alım satımı (treasury.ts)
+
+- Sıra kuraldır, tersi K1'i bozar: **girişte fiş önce mint sonra**, **çıkışta burn önce talep sonra**. `requestOut` burn'ü kendi içinde yapar.
+- Mint yalnız Kasa Giriş Fişi'ne karşıdır. `mintBlock()` iki sebeple bloke eder: RECONCILE ve T+3 gecikmesi. Bloke sırasında fiş "mint bekliyor" durur; bloke kalkınca `flushMints()` işler. Bloke, büyük alışın teslimini de bekletir (kısmi teslim yok).
+- Tavan `committedPlacingMg()` ile bakılır: rafinerideki `kasaya konuluyor` + yoldaki (REQUESTED) talepler. Aşılacaksa talep `HOLD` olur, alım devam eder, gramlar T'de birikir.
+- `applyFill(..., { deliver: false })`: müşteriye teslim olmayan fill'ler (büyük alışta mint öncesi, geç fill, hazine emri). Teslim `applyDelivery` ile ayrı adımdır.
+- Envanter hedefi `K` yalnız hazine alım satımında ve fill anında değişir (`shiftTarget`); zincirin başında ve sonunda `S + T = K` tutar, arada geçiş vardır.
+- Maker-checker: maker kendi talebini onaylayamaz, aynı onaycı iki kez onaylayamaz, **son onaycı canlı fiyatla gönderir** (talep anındaki fiyat yalnız bilgidir).
+
 ## Sprint durumu
 
-Sprint 1 ve 2 tamam: soket istemcisi, fiyatlama, durdur / başlat, bildirimler, SSE, REST istemcisi (HMAC), emir masası, KZ kaydı ve eşleşme, olay alımı; ekranlar K1, K2, K3. Sonraki: Sprint 3 (K4 kasa talimatları + fişler + mint / burn eşlemesi, K5 hazine alım satımı). Plan `README.md` sonunda.
+Sprint 1, 2 ve 3 tamam: soket istemcisi, fiyatlama, durdur / başlat, bildirimler, SSE, REST istemcisi (HMAC), emir masası, KZ kaydı ve eşleşme, olay alımı, kasa talimatları ve mint / burn eşlemesi, büyük alış / satış, hazine alım satımı; ekranlar K1, K2, K3, K4, K5. Sonraki: Sprint 4 (K6 fiziksel teslimat, K7 rafinasyon). Plan `README.md` sonunda.
