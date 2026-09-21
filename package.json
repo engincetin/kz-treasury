@@ -1,0 +1,27 @@
+{
+  "name": "kz-treasury",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Kanzasset tarafı: AMR bağlantı katmanı (fiyat soketi istemcisi, REST istemcisi, olay alıcısı), KZ kaydı ve eşleşme kontrolü, Hazine → Rafineri ekranları (K1'den K9'a), KZ simülatörü.",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n kz-server,kz-web -c green,cyan \"npm run dev -w @kz/server\" \"npm run dev -w @kz/web\"",
+    "dev:server": "npm run dev -w @kz/server",
+    "dev:web": "npm run dev -w @kz/web",
+    "build": "npm run build -w @kz/web",
+    "start": "npm run start -w @kz/server",
+    "test": "npm test -w @kz/server",
+    "contract:sync": "scripts/contract-sync.sh"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=22.12"
+  }
+}
