@@ -11,7 +11,7 @@ import Fastify from "fastify";
 import cors from "@fastify/cors";
 import fastifyStatic from "@fastify/static";
 import { createHmac, timingSafeEqual } from "node:crypto";
-import { existsSync } from "node:fs";
+import { existsSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { EventEmitter } from "node:events";
 import { PRICE_SOCKET, signingString, type Account, type EventEnvelope, type OrderResponse } from "@amr/contract";
@@ -26,6 +26,7 @@ import { TreasuryDesk, requiredApprovals, type TreasuryRequest } from "./treasur
 import { DEFAULT_FULFILMENT, FulfilmentDesk, type FulfilmentParams, type KzDelivery, type KzRefining } from "./fulfilment.ts";
 import { KzSettlementDesk, type KzSettlement } from "./settlement.ts";
 import { healthSnapshot } from "./health.ts";
+import { docsRoutes } from "./docs.ts";
 import { AuditDesk, ApprovalError, SECOND_APPROVAL, type AuditEntry, type ApprovalRequest } from "./audit.ts";
 import { DEFAULT_LOG_PARAMS, RequestLog, shouldLogIncoming, type RequestLogParams, type RequestLogRow } from "./reqlog.ts";
 import type { Catalog } from "@amr/contract";
@@ -206,6 +207,9 @@ client.on("notice", (n: { type: string; title: string; body?: string }) => notif
 
 // ---- API ----
 const app = Fastify({ logger: { level: process.env.LOG_LEVEL ?? "info" } });
+// yol tablosu: panel API belgesi (kz-api.json) buradan üretilir, elle liste tutulmaz
+const ROUTES: { method: string; url: string }[] = [];
+app.addHook("onRoute", (r) => { for (const m of Array.isArray(r.method) ? r.method : [r.method]) ROUTES.push({ method: m, url: r.url }); });
 await app.register(cors, { origin: true });
 // ham gövde (olay imzası için)
 app.addContentTypeParser("application/json", { parseAs: "string" }, (req, body, done) => {
@@ -583,6 +587,8 @@ async function handleEvent(ev: EventEnvelope): Promise<string> {
   }
 }
 
+docsRoutes(app, AMR_HTTP_URL);
+
 app.get("/api/stream", async (req, reply) => {
   reply.raw.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive", "access-control-allow-origin": "*" });
   const write = (ev: unknown) => reply.raw.write(`data: ${JSON.stringify(ev)}\n\n`);
@@ -625,9 +631,19 @@ app.get("/health", async (_req, reply) => {
 const webDist = resolve(import.meta.dirname, "../../kz-web/dist");
 if (existsSync(webDist)) {
   await app.register(fastifyStatic, { root: webDist, prefix: "/" });
-  app.setNotFoundHandler((req, reply) => (req.url.startsWith("/api") ? reply.code(404).send({ error: "not found" }) : reply.sendFile("index.html")));
+  app.setNotFoundHandler((req, reply) =>
+    req.url.startsWith("/api") || req.url.startsWith("/docs") || req.url.startsWith("/health") || req.url.endsWith(".json")
+      ? reply.code(404).send({ error: "not found" })
+      : reply.sendFile("index.html"));
+}
+
+// belge üretimi: yol tablosunu yaz ve çık (sunucu açılmaz, rafineriye bağlanılmaz)
+if (process.env.KZ_ROUTES_DUMP) {
+  await app.ready();
+  writeFileSync(process.env.KZ_ROUTES_DUMP, JSON.stringify(ROUTES, null, 1));
+  process.exit(0);
 }
 
 client.start();
 await app.listen({ port: PORT, host: "0.0.0.0" });
-app.log.info(`Kanzasset çekirdeği: http://localhost:${PORT} · rafineri soketi ${AMR_WS_URL} · REST ${AMR_HTTP_URL}`);
+app.log.info(`Kanzasset çekirdeği: http://localhost:${PORT} · rafineri soketi ${AMR_WS_URL} · REST ${AMR_HTTP_URL} · API dokümanı /docs`);

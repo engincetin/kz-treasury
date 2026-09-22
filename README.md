@@ -73,7 +73,9 @@ Docker olmadan, sunum için üç komut: `docs/DEMO.md` → "Sabah başlatma".
 
 `GET /health`: alt sistemler ayrı ayrı (kalıcı durum dosyası, rafineri fiyat soketi, müşteri işlemleri, KZ kaydının eşleşmesi, K1 ve K2 kontrolleri, kasa talimatı blokeleri, emirler, rafineri olayları, açık mahsuplaşma penceresi). Her kontrolde `ok`, `degraded` ya da `down` ve tek cümlelik açıklama vardır. HTTP 503 yalnız `down` durumunda döner: kalıcı durum yazılamıyorsa ya da bir kontrol (K1 `A ≤ V`, K2 `S + T = K`) bozuksa. Soket kopukluğu `degraded` sayılır.
 
-Rafineri tarafının API dokümanı sunucusundan açılır: `http://localhost:4000/docs`.
+## API dokümanı
+
+`http://localhost:5000/docs`: hazine panel API'si (`/api`) tek sayfalık görüntüleyicide. Ham belge `GET /kz-api.json`, üretimi `npm run kzapi:export` (çalışan sunucunun yol tablosundan; açıklaması olmayan uç kalırsa betik hata verir). Rafineri sözleşmesi rafinerinin kendi sayfasındadır: `http://localhost:4000/docs`, üst şeritten bağlantı verilir. Görüntüleyici sözleşme paketindedir, iki repoda tek kopyadır ve dışarıdan dosya çekmez.
 
 ## İstek günlüğü (VARA kanıtı)
 

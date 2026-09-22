@@ -1,0 +1,1749 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Kanzasset paneli API'si",
+    "version": "2.0.0",
+    "description": "Kanzasset hazine ekranlarının (K1..K9) kullandığı iç uçlar. Rafineri bu uçları kullanmaz; rafineri sözleşmesi /v1 altındadır ve rafinerinin openapi.json belgesindedir. Aktör X-User başlığıyla gelir: denetim günlüğüne yazılır ve ikinci onayda 'isteyen ile onaylayan aynı olamaz' kuralını besler. Miktarlar tam sayı (gram için mg, para için cent), fiyatlar ondalık dizedir. Mint ve burn Kanzasset işidir; rafineriye giden taleplerde bu kelimeler geçmez."
+  },
+  "paths": {
+    "/api/refinery/status": {
+      "get": {
+        "summary": "K1 bütün durum: soket, müşteri işlemleri, fiyatlar, KZ kaydı, kontroller, kasa, hazine, teslimat, mahsuplaşma",
+        "responses": {
+          "200": {
+            "description": "ekranların tek seferde okuduğu durum nesnesi",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/refinery/ticks": {
+      "get": {
+        "summary": "K1 tick geçmişi",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trading/stop": {
+      "post": {
+        "summary": "K1 müşteri işlemlerini elle durdur",
+        "description": "gerekçe zorunludur; elle durdurulmuşsa otomatik açılmaz.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "description": "durdurma gerekçesi"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/trading/start": {
+      "post": {
+        "summary": "K1 müşteri işlemlerini elle başlat",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/notifications": {
+      "get": {
+        "summary": "Bildirimler",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/notifications/{id}/read": {
+      "post": {
+        "summary": "Bildirimi okundu işaretle",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/audit": {
+      "get": {
+        "summary": "K9 denetim günlüğü (kalıcı)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ items, second_approval }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/approvals": {
+      "get": {
+        "summary": "K9 ikinci onay bekleyenler ve karara bağlananlar",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/requests": {
+      "get": {
+        "summary": "K9 istek günlüğü (VARA kanıtı)",
+        "description": "rafineriye giden ve gelen çağrılar; gövdenin kendisi değil sha256 özeti saklanır.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "name": "direction",
+            "in": "query",
+            "description": "GİDEN ya da GELEN"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "name": "errors",
+            "in": "query",
+            "description": "1 ise yalnız hatalar"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/log-params": {
+      "put": {
+        "summary": "K9 istek günlüğü saklama parametreleri",
+        "description": "Kritik aksiyon: onay numarası olmadan gelirse 202 ve onay numarası döner; ancak farklı bir kullanıcının onayıyla uygulanır (gövdeye approval_id ve approver eklenir). Aktör X-User başlığından okunur.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "retentionDays": {
+                    "type": "string",
+                    "description": "saklama süresi (gün)"
+                  },
+                  "maxRows": {
+                    "type": "string",
+                    "description": "satır tavanı"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "ikinci onay bekleniyor (onay numarası döner)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/approvals/{id}/approve": {
+      "post": {
+        "summary": "K9 onayla",
+        "description": "isteyen kendi isteğini onaylayamaz, onay bir kez kullanılır.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "approver": {
+                    "type": "string",
+                    "description": "onaylayan"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/approvals/{id}/reject": {
+      "post": {
+        "summary": "K9 onay isteğini reddet",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/pricing": {
+      "put": {
+        "summary": "K9 fiyatlama: marj, marj tavanı, komisyon",
+        "description": "Kritik aksiyon: onay numarası olmadan gelirse 202 ve onay numarası döner; ancak farklı bir kullanıcının onayıyla uygulanır (gövdeye approval_id ve approver eklenir). Aktör X-User başlığından okunur.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "marginBps": {
+                    "type": "string",
+                    "description": "marj (bps)"
+                  },
+                  "marginCapBps": {
+                    "type": "string",
+                    "description": "marj tavanı (bps)"
+                  },
+                  "commissionBps": {
+                    "type": "string",
+                    "description": "komisyon (bps)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "ikinci onay bekleniyor (onay numarası döner)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/order-params": {
+      "put": {
+        "summary": "K9 emir parametreleri",
+        "description": "Kritik aksiyon: onay numarası olmadan gelirse 202 ve onay numarası döner; ancak farklı bir kullanıcının onayıyla uygulanır (gövdeye approval_id ve approver eklenir). Aktör X-User başlığından okunur.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "slippageBps": {
+                    "type": "string",
+                    "description": "slippage toleransı"
+                  },
+                  "timeLimitMs": {
+                    "type": "string",
+                    "description": "emir zaman sınırı"
+                  },
+                  "unansweredGraceMs": {
+                    "type": "string",
+                    "description": "cevapsız emir beklemesi"
+                  },
+                  "minOrderUsdCents": {
+                    "type": "string",
+                    "description": "emir minimumu"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "ikinci onay bekleniyor (onay numarası döner)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders": {
+      "get": {
+        "summary": "K3 emir günlüğü, cevapsız emirler ve geç fill'ler",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "K3 müşteri emri (demo kutusu)",
+        "description": "müşteri fiyatı hesaplanır, rafineriye FOK emir gider, fill KZ kaydına işlenir. Stok tabanının altına inen alış büyük alış, tavanı aşan satış büyük satıştır.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "side": {
+                    "type": "string",
+                    "description": "BUY ya da SELL"
+                  },
+                  "qty_mg": {
+                    "type": "string",
+                    "description": "gram (mg)"
+                  },
+                  "ccy": {
+                    "type": "string",
+                    "description": "USD, EUR, AED"
+                  },
+                  "customer_ref": {
+                    "type": "string",
+                    "description": "müşteri referansı"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/{id}": {
+      "get": {
+        "summary": "K3 emir ayrıntısı ve zaman çizelgesi",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/{id}/decision": {
+      "post": {
+        "summary": "K3 geç fill kararı",
+        "description": "CLOSE ters emirle kapatır, CARRY envanterde taşır.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "decision": {
+                    "type": "string",
+                    "description": "CLOSE ya da CARRY"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/orders/{id}/resolve": {
+      "post": {
+        "summary": "K3 cevapsız emri kesin cevaba bağla (durum sorgusu, gerekirse iptal)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/vault": {
+      "get": {
+        "summary": "K4 kasa talimatları, tavan sayaçları ve blokeler",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "name": "limit",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "K4 elle kasa talimatı (gerekçeli)",
+        "description": "girişte fiş önce mint sonra, çıkışta burn önce talep sonra: bu sıra A ≤ V kontrolünü korur.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "type": {
+                    "type": "string",
+                    "description": "IN ya da OUT"
+                  },
+                  "qty_mg": {
+                    "type": "string",
+                    "description": "gram (mg)"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "description": "gerekçe"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/vault/{ref}": {
+      "get": {
+        "summary": "K4 talimat ayrıntısı (Kanzasset referansıyla)",
+        "parameters": [
+          {
+            "name": "ref",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/vault/{ref}/retry": {
+      "post": {
+        "summary": "K4 tavan yüzünden duran (HOLD) talebi yeniden dene",
+        "parameters": [
+          {
+            "name": "ref",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/vault/flush-mints": {
+      "post": {
+        "summary": "K4 bloke kalkınca bekleyen mint'leri işle",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/vault/statement": {
+      "get": {
+        "summary": "K4 rafinerinin günlük kasa ekstresi (rezerv kanıtı)",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "name": "date",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/treasury": {
+      "get": {
+        "summary": "K5 hazine alım satım talepleri ve stok parametreleri",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "K5 hazine emri talebi (maker)",
+        "description": "envanter hedefi K yalnız bu akışta değişir.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "side": {
+                    "type": "string",
+                    "description": "BUY ya da SELL"
+                  },
+                  "qty_mg": {
+                    "type": "string",
+                    "description": "gram (mg)"
+                  },
+                  "ccy": {
+                    "type": "string",
+                    "description": "kur"
+                  },
+                  "maker": {
+                    "type": "string",
+                    "description": "talebi açan"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/treasury/{id}": {
+      "get": {
+        "summary": "K5 talep ayrıntısı",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/treasury/{id}/approve": {
+      "post": {
+        "summary": "K5 onay (checker)",
+        "description": "maker kendi talebini onaylayamaz, aynı onaycı iki kez onaylayamaz, son onaycı canlı fiyatla gönderir.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "approver": {
+                    "type": "string",
+                    "description": "onaylayan"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/treasury/{id}/cancel": {
+      "post": {
+        "summary": "K5 talebi iptal et",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "actor": {
+                    "type": "string",
+                    "description": "iptal eden"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/treasury-approvals": {
+      "get": {
+        "summary": "K5 onay matrisi önizlemesi: girilen gram kaç onay ister",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "name": "qty_mg",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stock-params": {
+      "put": {
+        "summary": "K9 stok bandı, envanter hedefi, mint politikası, kasaya konuluyor tavanı, onay matrisi",
+        "description": "Kritik aksiyon: onay numarası olmadan gelirse 202 ve onay numarası döner; ancak farklı bir kullanıcının onayıyla uygulanır (gövdeye approval_id ve approver eklenir). Aktör X-User başlığından okunur.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "ikinci onay bekleniyor (onay numarası döner)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fulfilment": {
+      "get": {
+        "summary": "K6, K7 teslimat ve rafinasyon listesi, emanet ve burn anı",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/catalog": {
+      "get": {
+        "summary": "K7 külçe kataloğunu rafineriden tazele",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/deliveries": {
+      "post": {
+        "summary": "K6 fiziksel teslimat talebi",
+        "description": "talep anında tokenler emanete alınır (E +x), arz değişmez.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "qty_mg": {
+                    "type": "string",
+                    "description": "gram (mg)"
+                  },
+                  "address_ref": {
+                    "type": "string",
+                    "description": "adres referansı"
+                  },
+                  "insured_party_ref": {
+                    "type": "string",
+                    "description": "sigorta lehtarı"
+                  },
+                  "customer_ref": {
+                    "type": "string",
+                    "description": "müşteri referansı"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/deliveries/{id}/approve": {
+      "post": {
+        "summary": "K6 lojistik teklifini onayla (müşteri onayından sonra)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/deliveries/{id}/cancel": {
+      "post": {
+        "summary": "K6 teslimatı iptal et (emanet çözülür)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "description": "gerekçe"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/refining": {
+      "post": {
+        "summary": "K7 rafinasyon talebi (katalog kalemleriyle)",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "items": {
+                    "type": "string",
+                    "description": "kalem listesi"
+                  },
+                  "address_ref": {
+                    "type": "string",
+                    "description": "adres referansı"
+                  },
+                  "insured_party_ref": {
+                    "type": "string",
+                    "description": "sigorta lehtarı"
+                  },
+                  "customer_ref": {
+                    "type": "string",
+                    "description": "müşteri referansı"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/refining/{id}/approve": {
+      "post": {
+        "summary": "K7 rafinasyon teklifini onayla",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/refining/{id}/cancel": {
+      "post": {
+        "summary": "K7 rafinasyonu iptal et (yalnız üretime kadar)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "description": "gerekçe"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/fulfilment-params": {
+      "put": {
+        "summary": "K6 burn anı parametresi",
+        "description": "DELIVERED (varsayılan) ya da SHIPPED. Kritik aksiyon: onay numarası olmadan gelirse 202 ve onay numarası döner; ancak farklı bir kullanıcının onayıyla uygulanır (gövdeye approval_id ve approver eklenir). Aktör X-User başlığından okunur.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "burnMoment": {
+                    "type": "string",
+                    "description": "DELIVERED ya da SHIPPED"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "ikinci onay bekleniyor (onay numarası döner)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settlements": {
+      "get": {
+        "summary": "K8 mahsuplaşma pencereleri",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "K8 pencere talebi",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "trigger": {
+                    "type": "string",
+                    "description": "REQUEST_KZ"
+                  },
+                  "reason": {
+                    "type": "string",
+                    "description": "gerekçe"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settlements/{id}/reconcile": {
+      "post": {
+        "summary": "K8 mutabakat: rafineri ekstresini KZ kaydıyla karşılaştır",
+        "description": "eşitse ekstre onaylanır (RECONCILED), farklıysa kendi toplamlarımız gönderilir (MISMATCH).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settlements/{id}/gold-leg": {
+      "post": {
+        "summary": "K8 altın bacağını kasa talimatları masasına devret",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settlements/{id}/pay": {
+      "post": {
+        "summary": "K8 para bacağı: öde ya da ödeme alındı",
+        "description": "borçluysak ödeme YALNIZ şirket banka hesabından yapılır (K5). Kritik aksiyon: onay numarası olmadan gelirse 202 ve onay numarası döner; ancak farklı bir kullanıcının onayıyla uygulanır (gövdeye approval_id ve approver eklenir). Aktör X-User başlığından okunur.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "ccy": {
+                    "type": "string",
+                    "description": "kur"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "ikinci onay bekleniyor (onay numarası döner)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/record": {
+      "get": {
+        "summary": "K2 KZ kaydı ve kontroller (K1, K2)",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/record/snapshot": {
+      "post": {
+        "summary": "K2 rafineriden anlık fotoğraf al ve karşılaştır",
+        "responses": {
+          "200": {
+            "description": "{ account, match, diffs, seqGap }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/record/resolve": {
+      "post": {
+        "summary": "K2 uyuşmazlığı (RECONCILE) açıklamayla çöz",
+        "description": "rafineri fotoğrafı esas alınır, düzeltme kaydı tutulur, mint blokesi kalkar. Kritik aksiyon: onay numarası olmadan gelirse 202 ve onay numarası döner; ancak farklı bir kullanıcının onayıyla uygulanır (gövdeye approval_id ve approver eklenir). Aktör X-User başlığından okunur.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "explanation": {
+                    "type": "string",
+                    "description": "fark açıklaması"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "202": {
+            "description": "ikinci onay bekleniyor (onay numarası döner)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/debug/record-skew": {
+      "post": {
+        "summary": "Demo: KZ kaydını bilerek kaydırır (S9b uyuşmazlık senaryosu)",
+        "description": "KZ_DEMO=0 ile kapanır.",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "gold_mg": {
+                    "type": "string",
+                    "description": "altın kaydırma (mg)"
+                  },
+                  "usd_cents": {
+                    "type": "string",
+                    "description": "USD kaydırma (cent)"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/record/statement": {
+      "get": {
+        "summary": "K2 rafinerinin cari hesap ekstresi",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "name": "from",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "name": "to",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/{id}": {
+      "get": {
+        "summary": "Rafineri belgesini getir (imzalı JSON)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/events": {
+      "get": {
+        "summary": "Rafineriden alınan olaylar",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "summary": "Rafineri olay ucu (webhook)",
+        "description": "rafineri çağırır; HMAC doğrulanır, event_id ile tekrar ayıklanır.",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/stream": {
+      "get": {
+        "summary": "Canlı akış (SSE): tick, bildirim, durum değişikliği",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Sağlık durumu: alt sistemler ayrı ayrı",
+        "description": "kalıcı durum, rafineri soketi, müşteri işlemleri, KZ kaydı, K1 ve K2 kontrolleri, kasa blokeleri, emirler, olaylar. HTTP 503 yalnız iş göremez durumda (kayıt yazılamıyor ya da kontrol bozuk).",
+        "responses": {
+          "200": {
+            "description": "{ status, uptime_s, checks }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/docs": {
+      "get": {
+        "summary": "API dokümanı (tek sayfalık görüntüleyici)",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/kz-api.json": {
+      "get": {
+        "summary": "Bu belge",
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
