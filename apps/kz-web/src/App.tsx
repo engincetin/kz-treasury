@@ -28,7 +28,13 @@ export function App() {
   const live = useLive();
   return (
     <div className="layout">
-      <div className="brand"><span>Kanzasset</span><b>·</b><span className="small" style={{ color: "#c9ced6" }}>Hazine → Rafineri</span></div>
+      <div className="brand">
+        <img src="/kanzasset-mark.png" alt="Kanzasset" />
+        <div>
+          <div className="bt">KANZASSET<br />FZCO</div>
+          <div className="bs">Hazine → Rafineri</div>
+        </div>
+      </div>
       <nav className="nav">
         {SCREENS.map((s) => (
           <NavLink key={s.code} to={s.path} end={s.path === "/"}>
@@ -65,6 +71,7 @@ function TopBar({ s, sse, refresh }: { s: Status | null; sse: boolean; refresh: 
   const q = s?.quotes.find((x) => x.ccy === "USD");
   return (
     <header className="topbar">
+      <div className="chips">
       <div className="chip">
         <span className="l">Müşteri işlemleri</span>
         <span className="v"><span className={`dot ${s?.trading.open ? "ok" : "bad"}`} />{s ? (s.trading.open ? "Açık" : "Durdu") : "…"}</span>
@@ -92,6 +99,7 @@ function TopBar({ s, sse, refresh }: { s: Status | null; sse: boolean; refresh: 
         <span className="l">Cari hesap (KZ kaydı)</span>
         <span className="v mono">{s ? `${s.record.current_account.gold_mg >= 0 ? "+" : ""}${fmtG(s.record.current_account.gold_mg)} g` : "…"}</span>
         <span className="s">{s?.record.current_account.money.map((m) => `${m.ccy} ${fmtMoney(m.cents)}`).join(" · ")}</span>
+      </div>
       </div>
       <button className="bell" onClick={() => setOpen((v) => !v)}>🔔 Bildirimler {s && s.unread > 0 && <span className="n">{s.unread}</span>}{s && (s.unanswered + s.lateFills + s.awaitingDelivery + s.treasury.pending) > 0 && <span className="n" style={{ background: "var(--warn)" }} title="cevapsız / geç fill · teslim bekleyen · onay bekleyen">{s.unanswered + s.lateFills + s.awaitingDelivery + s.treasury.pending}</span>}</button>
       {open && (

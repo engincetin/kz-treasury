@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { api, ageSec, fmtTime, type useLive } from "../api.ts";
+import { Link } from "react-router-dom";
+import { api, ageSec, fmtTime, STL_STATUS_TR, type KzSettlement, type useLive } from "../api.ts";
+import { nextAction, steps } from "../settlementFlow.ts";
 
 type Live = ReturnType<typeof useLive>;
 
@@ -7,6 +9,9 @@ export function K1Connection({ live }: { live: Live }) {
   const s = live.status;
   const sock = s?.socket;
   const [reason, setReason] = useState("");
+  /** Günün kapanışı da bu ekranda görünsün: açık mahsuplaşma penceresi ve sıradaki adım. */
+  const [stl, setStl] = useState<KzSettlement | null>(null);
+  useEffect(() => { api.settlements().then((r) => setStl(r.open)).catch(() => {}); }, [live.version]);
   const [busy, setBusy] = useState(false);
   const [, tick] = useState(0);
   useEffect(() => { const t = setInterval(() => tick((x) => x + 1), 1000); return () => clearInterval(t); }, []);
@@ -54,6 +59,22 @@ export function K1Connection({ live }: { live: Live }) {
           </div>
           <p className="small" style={{ marginTop: 10 }}>Otomatik durma sebepleri: soket kopuk, fiyat bayat, rafineri yayını durdu. Elle durdurma bunlardan bağımsızdır ve gerekçe ister.</p>
         </section>
+
+        <Link to="/mahsuplasma" className="card">
+          <h2>Mahsuplaşma</h2>
+          {stl ? (
+            <>
+              <div className="status"><span className={`dot ${stl.status === "MISMATCH" ? "bad" : stl.status === "SETTLED" ? "ok" : "warn"}`} />{STL_STATUS_TR[stl.status] ?? stl.status}</div>
+              <div className="small" style={{ marginTop: 6 }}>adım {steps(stl).filter((x) => x.state === "done").length}/5 · {nextAction(stl).title}</div>
+              <div className="small">{nextAction(stl).body}</div>
+            </>
+          ) : (
+            <>
+              <div className="status"><span className="dot" />Açık pencere yok</div>
+              <div className="small" style={{ marginTop: 6 }}>Rafineri kesim saatinde açar; erken netleşmek isterseniz K8'den talep edin.</div>
+            </>
+          )}
+        </Link>
       </div>
 
       <section className="card" style={{ marginTop: 14 }}>
