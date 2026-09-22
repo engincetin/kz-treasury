@@ -182,6 +182,15 @@ export const api = {
   approvals: () => req<{ pending: ApprovalRequest[]; items: ApprovalRequest[] }>("/api/approvals"),
   approve: (id: number, approver: string) => req<ApprovalRequest>(`/api/approvals/${id}/approve`, { method: "POST", body: JSON.stringify({ approver }) }),
   rejectApproval: (id: number) => req<ApprovalRequest>(`/api/approvals/${id}/reject`, { method: "POST", body: "{}" }),
+  /** İstek günlüğü (VARA kanıtı): rafineriye giden ve rafineriden gelen çağrılar. */
+  requests: (q: { limit?: number; direction?: string; errors?: boolean } = {}) => {
+    const p = new URLSearchParams();
+    if (q.limit) p.set("limit", String(q.limit));
+    if (q.direction) p.set("direction", q.direction);
+    if (q.errors) p.set("errors", "1");
+    return req<{ summary: RequestSummary; items: RequestLogRow[] }>(`/api/requests${p.size ? `?${p}` : ""}`);
+  },
+  logParams: (p: { retentionDays?: number; maxRows?: number } & Approval) => req<unknown>("/api/log-params", { method: "PUT", body: JSON.stringify(p) }),
 };
 
 /** Kritik aksiyonun ilk adımı: sunucu 202 ile onay numarası döner, uygulama ikinci onayla olur. */
@@ -242,3 +251,12 @@ export const STL_STATUS_TR: Record<string, string> = { REQUESTED: "talep edildi"
 export const STL_TRIGGER_TR: Record<string, string> = { CUTOFF: "kesim saati", REQUEST_KZ: "Kanzasset talebi", REQUEST_AMR: "rafineri talebi", LIMIT: "cari hesap limiti" };
 export const FUL_STATUS_TR: Record<string, string> = { TALEP: "talep hazırlandı", REQUESTED: "rafineride", QUOTED: "teklif geldi", APPROVED: "onaylandı", PREPARING: "hazırlanıyor", IN_PRODUCTION: "üretimde", READY: "hazır", SHIPPED: "taşıyıcıda", DELIVERED: "teslim edildi", CANCELLED: "iptal", FAILED: "teslim edilemedi", HATA: "hata" };
 export const FIELD_TR: Record<string, string> = { "vault.in_vault_mg": "kasada", "vault.placing_mg": "kasaya konuluyor", "vault.shipping_mg": "sevkiyatta", "current_account.gold_mg": "cari hesap altın (T)", "current_account.money.USD": "cari hesap USD", "current_account.money.EUR": "cari hesap EUR", "current_account.money.AED": "cari hesap AED" };
+
+export interface RequestLogRow {
+  id: number; ts: string; direction: "GİDEN" | "GELEN"; method: string; path: string;
+  status: number; duration_ms: number; actor: string | null; body_sha256: string | null; bytes: number; error: string | null;
+}
+export interface RequestSummary {
+  last_24h: number; errors_24h: number; avg_ms: number; outgoing_24h: number; incoming_24h: number;
+  total: number; oldest_ts: string | null; retention_days: number; max_rows: number;
+}

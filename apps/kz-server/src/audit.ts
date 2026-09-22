@@ -45,6 +45,7 @@ export const SECOND_APPROVAL: Record<string, string> = {
   "fulfilment-params.update": "burn anı",
   "settlement.pay": "ödeme talimatı (şirket banka hesabından)",
   "record.resolve": "uyuşmazlık düzeltmesi",
+  "log-params.update": "istek günlüğü saklama parametreleri",
 };
 
 export interface AuditState {

@@ -27,6 +27,7 @@ import { DEFAULT_FULFILMENT, FulfilmentDesk, type FulfilmentParams, type KzDeliv
 import { KzSettlementDesk, type KzSettlement } from "./settlement.ts";
 import { healthSnapshot } from "./health.ts";
 import { AuditDesk, ApprovalError, SECOND_APPROVAL, type AuditEntry, type ApprovalRequest } from "./audit.ts";
+import { DEFAULT_LOG_PARAMS, RequestLog, shouldLogIncoming, type RequestLogParams, type RequestLogRow } from "./reqlog.ts";
 import type { Catalog } from "@amr/contract";
 
 const PORT = Number(process.env.PORT ?? 5000);
@@ -50,12 +51,14 @@ interface State {
   deliveries: KzDelivery[]; refinings: KzRefining[]; catalog: Catalog | null; fulfilment: FulfilmentParams;
   settlements: KzSettlement[];
   audit: AuditEntry[]; auditId: number; approvals: ApprovalRequest[]; approvalId: number;
+  requests: RequestLogRow[]; requestId: number; log: RequestLogParams;
 }
 const store = new JsonStore<State>(resolve(DATA_DIR, "kz-state.json"), () => ({
   record: emptyRecord(OPENING_MG), orders: [], notices: [], noticeId: 0, events: [], pricing: { ...DEFAULT_PRICING }, orderParams: { ...DEFAULT_ORDER_PARAMS }, market: { manualStop: false, manualReason: null },
   vault: [], treasury: [], stock: { ...DEFAULT_STOCK_PARAMS, targetMg: OPENING_MG || DEFAULT_STOCK_PARAMS.targetMg },
   deliveries: [], refinings: [], catalog: null, fulfilment: { ...DEFAULT_FULFILMENT }, settlements: [],
   audit: [], auditId: 0, approvals: [], approvalId: 0,
+  requests: [], requestId: 0, log: { ...DEFAULT_LOG_PARAMS },
 }));
 const S = store.data;
 const ticks: { seq: number; ts: string; tradable: boolean; prices: unknown }[] = [];
@@ -83,6 +86,10 @@ const notify = (type: string, title: string, body?: string) => {
   bus.emit("event", { kind: "notice", ...n });
 };
 const changed = () => { store.save(); bus.emit("event", { kind: "status", status: status() }); };
+
+// İstek günlüğü (VARA kanıtı): rafineriye giden ve rafineriden gelen her çağrı.
+const reqLog = new RequestLog(S, () => store.save());
+amr.onCall = (c) => reqLog.outgoing(c.method, c.path, c.status, c.durationMs, c.body, c.error);
 
 // Denetim günlüğü ve ikinci onay (K9). Aktör X-User başlığından gelir.
 const auditDesk = new AuditDesk(S, { save: () => store.save(), notify });
@@ -206,6 +213,14 @@ app.addContentTypeParser("application/json", { parseAs: "string" }, (req, body, 
   try { done(null, body === "" ? undefined : JSON.parse(body as string)); } catch (e) { done(e as Error, undefined); }
 });
 
+// gelen istekler: olaylar ve panelin değiştiricileri günlüğe yazılır (VARA kanıtı)
+app.addHook("onRequest", async (req) => { (req as { _t0?: number })._t0 = Date.now(); });
+app.addHook("onResponse", async (req, reply) => {
+  if (!shouldLogIncoming(req.method, req.url)) return;
+  const t0 = (req as { _t0?: number })._t0 ?? Date.now();
+  reqLog.incoming(req.method, req.url, reply.statusCode, Date.now() - t0, (req.headers["x-user"] as string) ?? null, (req as { rawBody?: string }).rawBody);
+});
+
 app.get("/api/refinery/status", async () => status());
 app.get<{ Querystring: { limit?: string } }>("/api/refinery/ticks", async (req) => ticks.slice(0, Math.min(200, Number(req.query.limit ?? 50))));
 app.post<{ Body: { reason?: string } }>("/api/trading/stop", async (req, reply) => {
@@ -248,6 +263,24 @@ app.get<{ Querystring: { limit?: string } }>("/api/audit", async (req) => ({
   second_approval: SECOND_APPROVAL,
 }));
 app.get("/api/approvals", async () => ({ pending: auditDesk.pending(), items: auditDesk.listApprovals(50) }));
+/** İstek günlüğü (VARA kanıtı): giden ve gelen çağrılar, gövde özetiyle. */
+app.get<{ Querystring: { limit?: string; direction?: string; path?: string; errors?: string } }>("/api/requests", async (req) => ({
+  summary: reqLog.summary(),
+  items: reqLog.list({ limit: Number(req.query.limit ?? 200), direction: req.query.direction, path: req.query.path, onlyErrors: req.query.errors === "1" }),
+}));
+/** Saklama parametreleri kritiktir (kanıt süresi kısaltılıyor): ikinci onay ister. */
+app.put<{ Body: Partial<RequestLogParams> & Approvable }>("/api/log-params", async (req, reply) => {
+  try {
+    const g = gate<Partial<RequestLogParams>>(req, "log-params.update");
+    if ("pending" in g) return reply.code(202).send(needsApproval(g));
+    const before = { ...S.log };
+    if (g.payload.retentionDays !== undefined) S.log.retentionDays = Math.max(0, Number(g.payload.retentionDays));
+    if (g.payload.maxRows !== undefined) S.log.maxRows = Math.max(0, Number(g.payload.maxRows));
+    reqLog.prune();
+    changed();
+    return logged(req, "log-params.update", `istek günlüğü saklama süresi ${S.log.retentionDays} gün, tavan ${S.log.maxRows} satır`, S.log, before, { ...S.log });
+  } catch (e) { return reply.code(409).send({ error: (e as Error).message }); }
+});
 app.post<{ Params: { id: string }; Body: { approver?: string } }>("/api/approvals/:id/approve", async (req, reply) => {
   try { return auditDesk.approve(Number(req.params.id), req.body?.approver?.trim() || actorOf(req)); }
   catch (e) { return reply.code(409).send({ error: (e as Error).message }); }

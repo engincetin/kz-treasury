@@ -75,6 +75,12 @@ Docker olmadan, sunum için üç komut: `docs/DEMO.md` → "Sabah başlatma".
 
 Rafineri tarafının API dokümanı sunucusundan açılır: `http://localhost:4000/docs`.
 
+## İstek günlüğü (VARA kanıtı)
+
+İki yön de yazılır: rafineriye giden her REST çağrısı (emir, hesap, kasa talimatı, mahsuplaşma) ve gelen her olay ile paneldeki her değiştirici istek. Her satırda zaman, uç, sonuç, süre, aktör ve **gövdenin sha256 özeti** vardır; gövdenin kendisi saklanmaz. Giden çağrının özeti rafineri tarafındaki gelen kaydın özetiyle birebir aynıdır: iki günlük birbirini doğrular.
+
+Okuma: K9 Parametreler ekranındaki "İstek günlüğü" bölümü ya da `GET /api/requests?limit=&direction=&errors=1`. Saklama süresi ve satır tavanı `PUT /api/log-params` ile değişir ve ikinci onay ister (kanıt süresini kısaltmak kritik aksiyondur).
+
 ## Panel API'si
 
 `GET /api/refinery/status` · `GET /api/refinery/ticks?limit=50` · `POST /api/trading/stop {reason}` · `POST /api/trading/start` · `GET /api/notifications` · `POST /api/notifications/:id/read` · `PUT /api/pricing {marginBps, marginCapBps, commissionBps}` · `PUT /api/order-params {slippageBps, timeLimitMs, unansweredGraceMs, minOrderUsdCents}` · SSE `GET /api/stream` · `GET /health`.

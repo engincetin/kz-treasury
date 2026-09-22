@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, currentUser, needsApproval, type ApprovalRequest, type AuditEntry, type StockParams, type useLive } from "../api.ts";
+import { api, currentUser, needsApproval, type ApprovalRequest, type AuditEntry, type RequestLogRow, type RequestSummary, type StockParams, type useLive } from "../api.ts";
 
 type Live = ReturnType<typeof useLive>;
 
@@ -19,6 +19,10 @@ export function K9Params({ live }: { live: Live }) {
   const [approver, setApprover] = useState("yonetici");
   const [log, setLog] = useState<AuditEntry[]>([]);
   const [pending, setPending] = useState<ApprovalRequest[]>([]);
+  const [reqs, setReqs] = useState<RequestLogRow[]>([]);
+  const [reqSum, setReqSum] = useState<RequestSummary | null>(null);
+  const [reqQ, setReqQ] = useState({ direction: "", errors: false });
+  const [retention, setRetention] = useState(90);
   /** Onay numarası → o isteği açan çağrı: onaylanınca aynı çağrı numarayla tekrarlanır. */
   const [apply, setApply] = useState<Record<number, (a: { approval_id: number; approver: string }) => Promise<unknown>>>({});
 
@@ -33,9 +37,11 @@ export function K9Params({ live }: { live: Live }) {
     try {
       setLog((await api.audit(60)).items);
       setPending((await api.approvals()).pending);
+      const r = await api.requests({ limit: 100, direction: reqQ.direction || undefined, errors: reqQ.errors });
+      setReqs(r.items); setReqSum(r.summary); setRetention(r.summary.retention_days);
     } catch (e) { setMsg(`Günlük okunamadı: ${(e as Error).message}`); }
   };
-  useEffect(() => { void reload(); }, [s?.ts]);
+  useEffect(() => { void reload(); }, [s?.ts, reqQ.direction, reqQ.errors]);
 
   /**
    * Kritik değişiklik iki adımdır. İlk çağrı sunucuda onay isteği açar (202);
@@ -193,6 +199,48 @@ export function K9Params({ live }: { live: Live }) {
           </div>
         </section>
       </div>
+
+      <section className="card" style={{ marginBottom: 14 }}>
+        <h2>İstek günlüğü (VARA kanıtı) <span className="pill">{reqSum?.total ?? 0}</span></h2>
+        <p className="small">Rafineriye giden her REST çağrısı ve rafineriden gelen her olay burada. Gövdenin kendisi saklanmaz; imzalanan gövdenin sha256 özeti saklanır, böylece "bu istek bu gövdeyle gitti" sonradan kanıtlanır. Saklama süresi ve satır tavanı ikinci onayla değişir.</p>
+        {reqSum && (
+          <div className="row" style={{ marginBottom: 8 }}>
+            <span className="pill">son 24 saat: {reqSum.last_24h}</span>
+            <span className="pill">giden {reqSum.outgoing_24h} · gelen {reqSum.incoming_24h}</span>
+            <span className={`pill ${reqSum.errors_24h > 0 ? "warn" : "ok"}`}>hata: {reqSum.errors_24h}</span>
+            <span className="pill">ortalama {reqSum.avg_ms} ms</span>
+            <span className="small">tavan {reqSum.max_rows} satır</span>
+          </div>
+        )}
+        <div className="row" style={{ marginBottom: 8 }}>
+          <select value={reqQ.direction} onChange={(e) => setReqQ({ ...reqQ, direction: e.target.value })}>
+            <option value="">iki yön</option>
+            <option value="GİDEN">giden (rafineriye)</option>
+            <option value="GELEN">gelen (olay ve panel)</option>
+          </select>
+          <label className="small"><input type="checkbox" checked={reqQ.errors} onChange={(e) => setReqQ({ ...reqQ, errors: e.target.checked })} /> yalnız hatalar</label>
+          <span className="small">Saklama (gün):</span>
+          <input className="mono" style={{ width: 80 }} value={String(retention)} onChange={(e) => setRetention(Number(e.target.value) || 0)} />
+          <button className="ghost" onClick={() => ask("istek günlüğü saklama parametreleri", (a) => api.logParams({ retentionDays: retention, ...a }))}>Kaydet</button>
+        </div>
+        <table>
+          <thead><tr><th>Zaman</th><th>Yön</th><th>İstek</th><th className="num">Sonuç</th><th className="num">Süre</th><th>Kim</th><th>Gövde özeti</th></tr></thead>
+          <tbody>
+            {reqs.length === 0 && <tr><td colSpan={7} className="small">Kayıt yok</td></tr>}
+            {reqs.map((r) => (
+              <tr key={r.id}>
+                <td className="mono small">{new Date(r.ts).toLocaleString("tr-TR")}</td>
+                <td className="small">{r.direction}</td>
+                <td className="mono small">{r.method} {r.path}</td>
+                <td className="num"><span className={`pill ${r.status >= 400 || r.status === 0 ? "bad" : "ok"}`}>{r.status || "hata"}</span></td>
+                <td className="num mono small">{r.duration_ms} ms</td>
+                <td className="small">{r.actor ?? ""}</td>
+                <td className="mono small" title={r.body_sha256 ?? ""}>{r.body_sha256 ? r.body_sha256.slice(0, 12) + "…" : ""}{r.error ? <div style={{ opacity: .7 }}>{r.error}</div> : null}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
 
       <div className="grid c2">
         <section className="card">

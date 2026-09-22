@@ -11,6 +11,9 @@ export class AmrHttpError extends Error { constructor(public status: number, pub
 export class AmrClient {
   constructor(public baseUrl: string, private apiKey: string, private secret: string) {}
 
+  /** Her çağrı burada bildirilir: istek günlüğü (VARA kanıtı) buraya bağlanır. */
+  onCall: (c: { method: string; path: string; status: number; durationMs: number; body: string; error?: string }) => void = () => {};
+
   headers(method: string, path: string, body = "", idempotencyKey?: string) {
     const ts = new Date().toISOString();
     const h: Record<string, string> = {
@@ -27,14 +30,20 @@ export class AmrClient {
     const raw = body === undefined ? "" : JSON.stringify(body);
     const ctrl = new AbortController();
     const t = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? 5000);
+    const started = Date.now();
+    const note = (status: number, error?: string) => {
+      try { this.onCall({ method, path, status, durationMs: Date.now() - started, body: raw, error }); } catch { /* günlük çağrıyı bozmaz */ }
+    };
     try {
       const res = await fetch(this.baseUrl + path, { method, headers: this.headers(method, path.split("?")[0], raw, opts.idempotencyKey), body: raw || undefined, signal: ctrl.signal });
       const text = await res.text();
       const json = text ? JSON.parse(text) : undefined;
+      note(res.status, res.ok ? undefined : `HTTP ${res.status}`);
       if (!res.ok) throw new AmrHttpError(res.status, json);
       return json as T;
     } catch (e) {
-      if ((e as Error).name === "AbortError") throw new AmrTimeout();
+      if ((e as Error).name === "AbortError") { note(0, "zaman aşımı"); throw new AmrTimeout(); }
+      if (!(e instanceof AmrHttpError)) note(0, (e as Error).message);
       throw e;
     } finally { clearTimeout(t); }
   }
