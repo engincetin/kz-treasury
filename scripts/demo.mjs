@@ -44,6 +44,17 @@ async function call(base, path, opts = {}) {
 const kz = (p, o) => call(KZ, p, o);
 const amr = (p, o) => call(AMR, p, o);
 
+/**
+ * Kanzasset tarafında kritik aksiyon: tek kişiyle geçmez.
+ * İsteyen açar (202 + onay numarası), farklı bir kullanıcı onaylar, ancak o zaman uygulanır.
+ */
+async function kzApproved(path, body, maker = "hazineci", approver = "yonetici") {
+  const r = await kz(path, { body, user: maker });
+  if (!r?.needs_approval) return r;
+  say(`\x1b[2mikinci onay: isteyen ${maker}, onaylayan ${approver} (aynı kişi onaylayamaz)\x1b[0m`);
+  return kz(path, { body: { ...body, approval_id: r.approval_id, approver }, user: maker });
+}
+
 async function status() { return kz("/api/refinery/status"); }
 
 /** Durumu tek satırda yazar: iki defterin özeti ve kontroller. */
@@ -285,7 +296,7 @@ const SCENARIOS = {
     }
     for (const m of w.money_leg.filter((x) => x.net_cents !== 0)) {
       act(`para bacağı ${m.ccy}: ${m.direction === "KZ_TO_AMR" ? "Kanzasset şirket hesabından öder" : "rafineri öder"}`);
-      try { await kz(`/api/settlements/${w.settlement_id}/pay`, { body: { ccy: m.ccy } }); ok(`${m.ccy} bacağı kapandı`); }
+      try { await kzApproved(`/api/settlements/${w.settlement_id}/pay`, { ccy: m.ccy }); ok(`${m.ccy} bacağı kapandı`); }
       catch (e) { warn(`${m.ccy}: ${e.message}`); }
     }
     await sleep(1500);
@@ -302,7 +313,7 @@ const SCENARIOS = {
     if (after.match === "RECONCILE") {
       warn("eşleşme uyuşmazlığı: KZ kaydı ≠ bakiye bilgisi → RECONCILE, mint ve kasa çıkışı bloke");
       act("anlık fotoğraf alınıp açıklama ile çözülüyor");
-      await kz("/api/record/resolve", { body: { explanation: "demo: kayıt kaydırma senaryosu, rafineri fotoğrafı esas alındı" } });
+      await kzApproved("/api/record/resolve", { explanation: "demo: kayıt kaydırma senaryosu, rafineri fotoğrafı esas alındı" });
       ok("RECONCILE çözüldü, bloke kalktı");
     } else say(`eşleşme: ${after.match ?? "?"}`);
     await snapshot("çözüm sonrası");

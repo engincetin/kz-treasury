@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, fmtG, fmtMoney, type StockParams, type useLive } from "../api.ts";
+import { api, currentUser, needsApproval, type ApprovalRequest, type AuditEntry, type StockParams, type useLive } from "../api.ts";
 
 type Live = ReturnType<typeof useLive>;
 
@@ -7,7 +7,8 @@ type Live = ReturnType<typeof useLive>;
  * K9 Parametreler.
  * İş kurallarının değerleri: stok bandı ve hedef, mint politikası, kasaya konuluyor tavanı,
  * onay matrisi, slippage, emir zaman sınırı, fiyatlama, burn anı.
- * Değişiklik ikinci onay ister ve günlüğe yazılır.
+ * Değişiklik ikinci onay ister ve günlüğe yazılır. Kural sunucudadır: istek 202 ile onay
+ * numarası döner, onay farklı bir kullanıcıdan gelmezse değişiklik uygulanmaz.
  */
 export function K9Params({ live }: { live: Live }) {
   const s = live.status;
@@ -15,10 +16,11 @@ export function K9Params({ live }: { live: Live }) {
   const [pricing, setPricing] = useState({ marginBps: 30, marginCapBps: 100, commissionBps: 15 });
   const [orderP, setOrderP] = useState({ slippageBps: 100, timeLimitMs: 3000, unansweredGraceMs: 1000, minOrderUsdCents: 1000 });
   const [msg, setMsg] = useState("");
-  const [pending, setPending] = useState<{ what: string; apply: () => Promise<unknown> } | null>(null);
-  const [maker, setMaker] = useState("hazineci");
-  const [approver, setApprover] = useState("onaycı-1");
-  const [log, setLog] = useState<{ ts: string; who: string; what: string }[]>([]);
+  const [approver, setApprover] = useState("yonetici");
+  const [log, setLog] = useState<AuditEntry[]>([]);
+  const [pending, setPending] = useState<ApprovalRequest[]>([]);
+  /** Onay numarası → o isteği açan çağrı: onaylanınca aynı çağrı numarayla tekrarlanır. */
+  const [apply, setApply] = useState<Record<number, (a: { approval_id: number; approver: string }) => Promise<unknown>>>({});
 
   useEffect(() => {
     if (!s) return;
@@ -27,18 +29,44 @@ export function K9Params({ live }: { live: Live }) {
     setOrderP(s.orderParams);
   }, [s?.ts]);
 
-  /** Kritik değişiklik: önce istenir, farklı bir kullanıcı onaylayınca uygulanır. */
-  const ask = (what: string, apply: () => Promise<unknown>) => { setPending({ what, apply }); setMsg(`"${what}" ikinci onay bekliyor. Onaylayan, isteyenden farklı olmalı.`); };
-  const confirm = async () => {
-    if (!pending) return;
-    if (approver.trim() === maker.trim()) { setMsg("İkinci onay farklı bir kullanıcıdan gelmeli."); return; }
+  const reload = async () => {
     try {
-      await pending.apply();
-      setLog([{ ts: new Date().toISOString(), who: `${maker} → ${approver}`, what: pending.what }, ...log].slice(0, 50));
-      setMsg(`"${pending.what}" uygulandı ve günlüğe yazıldı.`);
-      setPending(null);
+      setLog((await api.audit(60)).items);
+      setPending((await api.approvals()).pending);
+    } catch (e) { setMsg(`Günlük okunamadı: ${(e as Error).message}`); }
+  };
+  useEffect(() => { void reload(); }, [s?.ts]);
+
+  /**
+   * Kritik değişiklik iki adımdır. İlk çağrı sunucuda onay isteği açar (202);
+   * ikinci çağrı onay numarası ve onaylayanla gelir ve değişiklik o zaman uygulanır.
+   */
+  const ask = async (what: string, call: (a: { approval_id?: number; approver?: string }) => Promise<unknown>) => {
+    try {
+      const r = await call({});
+      if (needsApproval(r)) {
+        setApply((m) => ({ ...m, [r.approval_id]: (a) => call(a) }));
+        setMsg(`"${what}" ikinci onay bekliyor (onay ${r.approval_id}). İsteyen ${r.requested_by}; onaylayan farklı olmalı.`);
+      } else setMsg(`"${what}" uygulandı.`);
+      await reload();
       live.refresh();
     } catch (e) { setMsg(`Hata: ${(e as Error).message}`); }
+  };
+
+  const confirm = async (a: ApprovalRequest) => {
+    const call = apply[a.id];
+    try {
+      if (call) await call({ approval_id: a.id, approver: approver.trim() });
+      else await api.approve(a.id, approver.trim()); // başka oturumda açılmış istek: yalnız onaylanır
+      setMsg(`"${a.summary}" onaylandı ve günlüğe yazıldı (isteyen ${a.requested_by}, onaylayan ${approver.trim()}).`);
+      await reload();
+      live.refresh();
+    } catch (e) { setMsg(`Hata: ${(e as Error).message}`); }
+  };
+
+  const reject = async (a: ApprovalRequest) => {
+    try { await api.rejectApproval(a.id); setMsg(`"${a.summary}" reddedildi.`); await reload(); }
+    catch (e) { setMsg(`Hata: ${(e as Error).message}`); }
   };
 
   const num = (v: string) => Number(String(v).replace(",", "."));
@@ -51,16 +79,32 @@ export function K9Params({ live }: { live: Live }) {
 
       {msg && <div className="note" style={{ marginBottom: 12 }}>{msg}</div>}
 
-      {pending && (
+      {pending.length > 0 && (
         <section className="card" style={{ marginBottom: 14, borderColor: "var(--warn)" }}>
-          <h2>İkinci onay bekleniyor</h2>
-          <p className="small"><b>{pending.what}</b></p>
-          <div className="row">
-            <span className="small">İsteyen:</span><input value={maker} onChange={(e) => setMaker(e.target.value)} />
-            <span className="small">Onaylayan:</span><input value={approver} onChange={(e) => setApprover(e.target.value)} />
-            <button className="primary" onClick={confirm}>Onayla ve uygula</button>
-            <button className="ghost" onClick={() => { setPending(null); setMsg("İstek geri alındı."); }}>Vazgeç</button>
+          <h2>İkinci onay bekleyenler</h2>
+          <p className="small">Kural sunucudadır: isteyen kendi isteğini onaylayamaz, onay bir kez kullanılır.</p>
+          <div className="row" style={{ marginBottom: 8 }}>
+            <span className="small">Onaylayan kullanıcı:</span>
+            <input value={approver} onChange={(e) => setApprover(e.target.value)} />
+            <span className="small">aktif kullanıcı: <b>{currentUser.name}</b> (üst şeritten değişir)</span>
           </div>
+          <table>
+            <thead><tr><th>No</th><th>Ne</th><th>İsteyen</th><th>Zaman</th><th /></tr></thead>
+            <tbody>
+              {pending.map((a) => (
+                <tr key={a.id}>
+                  <td className="mono">{a.id}</td>
+                  <td>{a.summary}</td>
+                  <td className="small">{a.requested_by}</td>
+                  <td className="mono small">{new Date(a.requested_ts).toLocaleString("tr-TR")}</td>
+                  <td className="row" style={{ justifyContent: "flex-end" }}>
+                    <button className="primary" disabled={approver.trim() === a.requested_by} title={approver.trim() === a.requested_by ? "isteyen kendi isteğini onaylayamaz" : ""} onClick={() => confirm(a)}>Onayla ve uygula</button>
+                    <button className="ghost" onClick={() => reject(a)}>Reddet</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </section>
       )}
 
@@ -87,7 +131,7 @@ export function K9Params({ live }: { live: Live }) {
             </div>
           )}
           <div className="row" style={{ marginTop: 10, justifyContent: "flex-end" }}>
-            <button className="primary" disabled={!stock} onClick={() => ask("stok bandı ve envanter parametreleri", () => api.stockParams(stock!))}>Kaydet</button>
+            <button className="primary" disabled={!stock} onClick={() => ask("stok bandı ve envanter parametreleri", (a) => api.stockParams({ ...stock!, ...a }))}>Kaydet</button>
           </div>
         </section>
 
@@ -111,7 +155,7 @@ export function K9Params({ live }: { live: Live }) {
             </tbody>
           </table>
           <div className="row" style={{ marginTop: 10, justifyContent: "flex-end" }}>
-            <button className="primary" disabled={!stock} onClick={() => ask("onay matrisi", () => api.stockParams(stock!))}>Kaydet</button>
+            <button className="primary" disabled={!stock} onClick={() => ask("onay matrisi", (a) => api.stockParams({ ...stock!, ...a }))}>Kaydet</button>
           </div>
         </section>
       </div>
@@ -128,7 +172,7 @@ export function K9Params({ live }: { live: Live }) {
             <input className="mono" value={String(pricing.commissionBps)} onChange={(e) => setPricing({ ...pricing, commissionBps: Number(e.target.value) || 0 })} />
           </div>
           <div className="row" style={{ marginTop: 10, justifyContent: "flex-end" }}>
-            <button className="primary" onClick={() => ask("fiyatlama parametreleri", () => api.pricing(pricing))}>Kaydet</button>
+            <button className="primary" onClick={() => ask("fiyatlama parametreleri", (a) => api.pricing({ ...pricing, ...a }))}>Kaydet</button>
           </div>
         </section>
 
@@ -145,7 +189,7 @@ export function K9Params({ live }: { live: Live }) {
             <input className="mono" value={String(orderP.minOrderUsdCents)} onChange={(e) => setOrderP({ ...orderP, minOrderUsdCents: Number(e.target.value) || 0 })} />
           </div>
           <div className="row" style={{ marginTop: 10, justifyContent: "flex-end" }}>
-            <button className="primary" onClick={() => ask("emir parametreleri", () => api.orderParams(orderP))}>Kaydet</button>
+            <button className="primary" onClick={() => ask("emir parametreleri", (a) => api.orderParams({ ...orderP, ...a }))}>Kaydet</button>
           </div>
         </section>
       </div>
@@ -163,12 +207,19 @@ export function K9Params({ live }: { live: Live }) {
         </section>
 
         <section className="card">
-          <h2>Değişiklik günlüğü</h2>
+          <h2>Denetim günlüğü</h2>
+          <p className="small">Sunucuda tutulur, sayfa yenilenince kaybolmaz. Elle yapılan her aksiyon ve her onay adımı buradadır.</p>
           <table>
-            <thead><tr><th>Zaman</th><th>İsteyen → onaylayan</th><th>Ne</th></tr></thead>
+            <thead><tr><th>Zaman</th><th>Kim</th><th>Ne</th></tr></thead>
             <tbody>
-              {log.length === 0 && <tr><td colSpan={3} className="small">Bu oturumda değişiklik yok</td></tr>}
-              {log.map((l, i) => <tr key={i}><td className="mono small">{new Date(l.ts).toLocaleString("tr-TR")}</td><td className="small">{l.who}</td><td className="small">{l.what}</td></tr>)}
+              {log.length === 0 && <tr><td colSpan={3} className="small">Günlük boş</td></tr>}
+              {log.map((l) => (
+                <tr key={l.id}>
+                  <td className="mono small">{new Date(l.ts).toLocaleString("tr-TR")}</td>
+                  <td className="small">{l.actor}</td>
+                  <td className="small">{l.summary}<div className="mono" style={{ fontSize: 11, opacity: .6 }}>{l.action}</div></td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </section>

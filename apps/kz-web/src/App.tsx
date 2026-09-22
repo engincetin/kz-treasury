@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
-import { api, ageSec, fmtG, fmtMoney, useLive, type Notice, type Status } from "./api.ts";
+import { api, ageSec, currentUser, fmtG, fmtMoney, KZ_USERS, setCurrentUser, useLive, type Notice, type Status } from "./api.ts";
 import { K1Connection } from "./pages/K1Connection.tsx";
 import { Placeholder } from "./pages/Placeholder.tsx";
 import { K2Accounts } from "./pages/K2Accounts.tsx";
@@ -105,7 +105,29 @@ function TopBar({ s, sse, refresh }: { s: Status | null; sse: boolean; refresh: 
           ))}
         </div>
       )}
+      <UserPicker />
       <span className="small" style={{ alignSelf: "center" }}>canlı akış {sse ? "açık" : "kapalı"}</span>
     </header>
+  );
+}
+
+/**
+ * Aktif kullanıcı. Demoda oturum açma yoktur: seçilen ad her istekte X-User ile gider,
+ * denetim günlüğüne yazılır ve ikinci onayda "isteyen ile onaylayan aynı olamaz" kuralını besler.
+ */
+function UserPicker() {
+  const [u, setU] = useState(currentUser.name);
+  return (
+    <label className="chip" style={{ minWidth: 0 }}>
+      <span className="l">Kullanıcı</span>
+      <select
+        value={u}
+        onChange={(e) => { setCurrentUser(e.target.value); setU(e.target.value); }}
+        style={{ border: 0, background: "transparent", font: "inherit", fontWeight: 600, padding: 0 }}
+      >
+        {KZ_USERS.map((x) => <option key={x} value={x}>{x}</option>)}
+      </select>
+      <span className="s">aksiyonlar bu adla günlüğe yazılır</span>
+    </label>
   );
 }

@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 
+/** Demoda aktif kullanıcı üst şeritten seçilir ve her istekte X-User ile gider (denetim günlüğü ve ikinci onay için). */
+export const KZ_USERS = ["hazineci", "operasyon", "yonetici", "denetci"] as const;
+export const currentUser = { name: localStorage.getItem("kzUser") ?? "hazineci" };
+export function setCurrentUser(u: string) { currentUser.name = u; localStorage.setItem("kzUser", u); }
+
 async function req<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, { ...init, headers: { "content-type": "application/json", ...(init?.headers ?? {}) } });
+  const res = await fetch(path, { ...init, headers: { "content-type": "application/json", "x-user": currentUser.name, ...(init?.headers ?? {}) } });
   if (!res.ok) { let msg = res.statusText; try { msg = (await res.json()).error ?? msg; } catch { /* yok */ } throw new Error(msg); }
   return res.json();
 }
@@ -121,6 +126,9 @@ export interface Status {
 export interface EventLog { event_id: string; type: string; ts: string; received_ts: string; seq?: number; summary: string }
 export interface Doc { meta: { doc_id: string; type: string; related_id: string; hash: string; signature: string; created_ts: string; sent_ts?: string }; content: Record<string, unknown> }
 
+/** Kritik uçlarda ikinci onay: ilk istekte boş, onayda numara ve onaylayan. */
+export interface Approval { approval_id?: number; approver?: string }
+
 export const api = {
   status: () => req<Status>("/api/refinery/status"),
   ticks: (limit = 50) => req<Tick[]>(`/api/refinery/ticks?limit=${limit}`),
@@ -128,8 +136,8 @@ export const api = {
   start: () => req<Status>("/api/trading/start", { method: "POST", body: "{}" }),
   notifications: () => req<{ unread: number; items: Notice[] }>("/api/notifications"),
   markRead: (id: number) => req(`/api/notifications/${id}/read`, { method: "POST", body: "{}" }),
-  pricing: (p: Partial<Status["pricing"]>) => req("/api/pricing", { method: "PUT", body: JSON.stringify(p) }),
-  orderParams: (p: Partial<Status["orderParams"]>) => req("/api/order-params", { method: "PUT", body: JSON.stringify(p) }),
+  pricing: (p: Partial<Status["pricing"]> & Approval) => req<unknown>("/api/pricing", { method: "PUT", body: JSON.stringify(p) }),
+  orderParams: (p: Partial<Status["orderParams"]> & Approval) => req<unknown>("/api/order-params", { method: "PUT", body: JSON.stringify(p) }),
   orders: (limit = 200) => req<{ items: CustomerOrder[]; unanswered: CustomerOrder[]; lateFills: CustomerOrder[] }>(`/api/orders?limit=${limit}`),
   order: (id: string) => req<CustomerOrder>(`/api/orders/${encodeURIComponent(id)}`),
   placeOrder: (o: { side: "BUY" | "SELL"; qty_mg: number; ccy: Ccy; customer_ref?: string }) => req<CustomerOrder>("/api/orders", { method: "POST", body: JSON.stringify(o) }),
@@ -151,7 +159,7 @@ export const api = {
   treasuryCreate: (b: { side: "BUY" | "SELL"; qty_mg: number; ccy: Ccy; maker: string }) => req<TreasuryRequest>("/api/treasury", { method: "POST", body: JSON.stringify(b) }),
   treasuryApprove: (id: string, approver: string) => req<TreasuryRequest>(`/api/treasury/${encodeURIComponent(id)}/approve`, { method: "POST", body: JSON.stringify({ approver }) }),
   treasuryCancel: (id: string, actor: string) => req<TreasuryRequest>(`/api/treasury/${encodeURIComponent(id)}/cancel`, { method: "POST", body: JSON.stringify({ actor }) }),
-  stockParams: (p: Partial<StockParams>) => req<StockParams>("/api/stock-params", { method: "PUT", body: JSON.stringify(p) }),
+  stockParams: (p: Partial<StockParams> & Approval) => req<StockParams | NeedsApproval>("/api/stock-params", { method: "PUT", body: JSON.stringify(p) }),
   // K6 teslimat, K7 rafinasyon
   fulfilment: () => req<FulfilmentView>("/api/fulfilment"),
   catalogRefresh: () => req<Catalog>("/api/catalog"),
@@ -161,14 +169,30 @@ export const api = {
   refiningCreate: (b: { items: { item_id: string; qty: number }[]; address_ref?: string; insured_party_ref?: string }) => req<KzRefining>("/api/refining", { method: "POST", body: JSON.stringify(b) }),
   refiningApprove: (id: string) => req<KzRefining>(`/api/refining/${encodeURIComponent(id)}/approve`, { method: "POST", body: "{}" }),
   refiningCancel: (id: string, reason: string) => req<KzRefining>(`/api/refining/${encodeURIComponent(id)}/cancel`, { method: "POST", body: JSON.stringify({ reason }) }),
-  fulfilmentParams: (p: { burnMoment: "DELIVERED" | "SHIPPED" }) => req("/api/fulfilment-params", { method: "PUT", body: JSON.stringify(p) }),
+  fulfilmentParams: (p: { burnMoment: "DELIVERED" | "SHIPPED" } & Approval) => req<unknown>("/api/fulfilment-params", { method: "PUT", body: JSON.stringify(p) }),
   // K8 mahsuplaşma
   settlements: () => req<{ items: KzSettlement[]; open: KzSettlement | null; record: KzRecord }>("/api/settlements"),
   settlementRequest: (reason?: string) => req<KzSettlement>("/api/settlements", { method: "POST", body: JSON.stringify({ trigger: "REQUEST_KZ", reason }) }),
   settlementReconcile: (id: string) => req<KzSettlement>(`/api/settlements/${encodeURIComponent(id)}/reconcile`, { method: "POST", body: "{}" }),
   settlementGoldLeg: (id: string) => req<KzSettlement>(`/api/settlements/${encodeURIComponent(id)}/gold-leg`, { method: "POST", body: "{}" }),
-  settlementPay: (id: string, ccy: string) => req<KzSettlement>(`/api/settlements/${encodeURIComponent(id)}/pay`, { method: "POST", body: JSON.stringify({ ccy }) }),
+  settlementPay: (id: string, ccy: string, approval?: { approval_id: number; approver: string }) =>
+    req<KzSettlement | NeedsApproval>(`/api/settlements/${encodeURIComponent(id)}/pay`, { method: "POST", body: JSON.stringify({ ccy, ...(approval ?? {}) }) }),
+  // K9 denetim günlüğü ve ikinci onay
+  audit: (limit = 100) => req<{ items: AuditEntry[]; second_approval: Record<string, string> }>(`/api/audit?limit=${limit}`),
+  approvals: () => req<{ pending: ApprovalRequest[]; items: ApprovalRequest[] }>("/api/approvals"),
+  approve: (id: number, approver: string) => req<ApprovalRequest>(`/api/approvals/${id}/approve`, { method: "POST", body: JSON.stringify({ approver }) }),
+  rejectApproval: (id: number) => req<ApprovalRequest>(`/api/approvals/${id}/reject`, { method: "POST", body: "{}" }),
 };
+
+/** Kritik aksiyonun ilk adımı: sunucu 202 ile onay numarası döner, uygulama ikinci onayla olur. */
+export interface NeedsApproval { needs_approval: true; approval_id: number; requested_by: string; message: string; values: unknown }
+export const needsApproval = (r: unknown): r is NeedsApproval => !!r && typeof r === "object" && (r as NeedsApproval).needs_approval === true;
+export interface AuditEntry { id: number; ts: string; actor: string; action: string; summary: string; before?: unknown; after?: unknown }
+export interface ApprovalRequest {
+  id: number; action: string; summary: string; payload: unknown;
+  requested_by: string; requested_ts: string; decided_by: string | null; decided_ts: string | null;
+  status: "PENDING" | "APPROVED" | "REJECTED"; consumed?: boolean;
+}
 
 export interface VaultStatementDoc {
   date: string;

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, fmtDT, fmtG, fmtMoney, STL_STATUS_TR, STL_TRIGGER_TR, type KzSettlement, type useLive } from "../api.ts";
+import { needsApproval, api, fmtDT, fmtG, fmtMoney, STL_STATUS_TR, STL_TRIGGER_TR, type KzSettlement, type useLive } from "../api.ts";
 
 type Live = ReturnType<typeof useLive>;
 
@@ -22,7 +22,12 @@ export function K8Settlement({ live }: { live: Live }) {
 
   const act = async (key: string, fn: () => Promise<unknown>, done: string) => {
     setBusy(key); setMsg("");
-    try { await fn(); setMsg(done); await load(); live.refresh(); }
+    try {
+      const r = await fn();
+      // kritik aksiyon: sunucu uygulamadı, ikinci onay bekliyor (K9'dan onaylanır)
+      setMsg(needsApproval(r) ? `${r.message}. Onay K9 Parametreler ekranından verilir (onay ${r.approval_id}).` : done);
+      await load(); live.refresh();
+    }
     catch (e) { setMsg(`Hata: ${(e as Error).message}`); }
     finally { setBusy(""); }
   };

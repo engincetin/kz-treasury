@@ -15,6 +15,7 @@ Kanzasset (KZ) tarafında çalışan hazine çekirdeği: rafinerinin (AMR uygula
 - Rafineri olayları (webhook) `POST /api/events` ile alınır (HMAC doğrulanır, `event_id` ile tekrar ayıklanır).
 - Kasa talimatları (05, 06): girişte önce rafinerinin **Kasa Giriş Fişi** gelir, sonra mint yapılır; çıkışta önce **burn**, sonra talep. Bu sıra sayesinde `A ≤ V` hiçbir an bozulmaz. Mint uyuşmazlıkta (RECONCILE) ve kasaya koyma vadesi geçtiğinde (T+3) bloke olur; bloke kalkınca bekleyen mint'ler işlenir.
 - Büyük alış (07): teslim sonrası stok tabanın altına inecekse fiyat fill'de kilitlenir, eksik kadar kasa girişi istenir ve mint tamamlanınca **tek seferde** teslim edilir. Büyük satış (08): stok tavanı aşılırsa fazla burn edilir ve kasa çıkışı istenir.
+- Elle yapılan her aksiyon kalıcı denetim günlüğüne yazılır (kim, ne zaman, ne; öncesi ve sonrasıyla). Kritik aksiyonlar (parametre değişikliği, ödeme talimatı, uyuşmazlık düzeltmesi) tek kişiyle geçmez: isteyen açar, **farklı** bir kullanıcı onaylar, onay bir kez kullanılır. Kural sunucudadır, ekranda değil.
 - Hazine alım satımı (09): maker-checker, onay matrisi gram bazında (≤5 kg 1, ≤15 kg 2, üstü 3); son onaycı canlı fiyatla gönderir. Envanter hedefi `K` yalnız burada değişir.
 
 ## Yapı
@@ -84,6 +85,7 @@ Olaylar: `POST /api/events` (rafineri çağırır, HMAC) · `GET /api/events`.
 Kasa talimatları (K4): `GET /api/vault` · `GET /api/vault/:ref` · `POST /api/vault {type, qty_mg, reason}` (elle, gerekçeli) · `POST /api/vault/:ref/retry` (tavan yüzünden duran talep) · `POST /api/vault/flush-mints` · `GET /api/vault/statement` (rafinerinin günlük kasa ekstresi).
 Mahsuplaşma (K8): `GET /api/settlements` · `POST /api/settlements` · `POST /api/settlements/:id/reconcile|gold-leg|pay`.
 Teslimat ve rafinasyon (K6, K7): `GET /api/fulfilment` · `GET /api/catalog` · `POST /api/deliveries` · `POST /api/deliveries/:id/approve|cancel` · `POST /api/refining` · `POST /api/refining/:id/approve|cancel` · `PUT /api/fulfilment-params {burnMoment}`.
+Denetim günlüğü ve ikinci onay (K9): `GET /api/audit?limit=` · `GET /api/approvals` · `POST /api/approvals/:id/approve {approver}` · `POST /api/approvals/:id/reject`. Kritik uçlar (`PUT /api/pricing`, `PUT /api/order-params`, `PUT /api/stock-params`, `PUT /api/fulfilment-params`, `POST /api/settlements/:id/pay`, `POST /api/record/resolve`) onaysız gelince `202` ve onay numarası döner; değişiklik ancak `{approval_id, approver}` ile ve **farklı** bir kullanıcıyla uygulanır. Aktör `X-User` başlığından okunur.
 Hazine alım satımı (K5): `GET /api/treasury` · `POST /api/treasury {side, qty_mg, ccy, maker}` · `POST /api/treasury/:id/approve {approver}` · `POST /api/treasury/:id/cancel` · `GET /api/treasury-approvals?qty_mg=` · `PUT /api/stock-params`.
 
 ## Sprint planı

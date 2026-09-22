@@ -26,6 +26,7 @@ import { TreasuryDesk, requiredApprovals, type TreasuryRequest } from "./treasur
 import { DEFAULT_FULFILMENT, FulfilmentDesk, type FulfilmentParams, type KzDelivery, type KzRefining } from "./fulfilment.ts";
 import { KzSettlementDesk, type KzSettlement } from "./settlement.ts";
 import { healthSnapshot } from "./health.ts";
+import { AuditDesk, ApprovalError, SECOND_APPROVAL, type AuditEntry, type ApprovalRequest } from "./audit.ts";
 import type { Catalog } from "@amr/contract";
 
 const PORT = Number(process.env.PORT ?? 5000);
@@ -48,11 +49,13 @@ interface State {
   vault: VaultInstruction[]; treasury: TreasuryRequest[]; stock: StockParams;
   deliveries: KzDelivery[]; refinings: KzRefining[]; catalog: Catalog | null; fulfilment: FulfilmentParams;
   settlements: KzSettlement[];
+  audit: AuditEntry[]; auditId: number; approvals: ApprovalRequest[]; approvalId: number;
 }
 const store = new JsonStore<State>(resolve(DATA_DIR, "kz-state.json"), () => ({
   record: emptyRecord(OPENING_MG), orders: [], notices: [], noticeId: 0, events: [], pricing: { ...DEFAULT_PRICING }, orderParams: { ...DEFAULT_ORDER_PARAMS }, market: { manualStop: false, manualReason: null },
   vault: [], treasury: [], stock: { ...DEFAULT_STOCK_PARAMS, targetMg: OPENING_MG || DEFAULT_STOCK_PARAMS.targetMg },
   deliveries: [], refinings: [], catalog: null, fulfilment: { ...DEFAULT_FULFILMENT }, settlements: [],
+  audit: [], auditId: 0, approvals: [], approvalId: 0,
 }));
 const S = store.data;
 const ticks: { seq: number; ts: string; tradable: boolean; prices: unknown }[] = [];
@@ -80,6 +83,15 @@ const notify = (type: string, title: string, body?: string) => {
   bus.emit("event", { kind: "notice", ...n });
 };
 const changed = () => { store.save(); bus.emit("event", { kind: "status", status: status() }); };
+
+// Denetim günlüğü ve ikinci onay (K9). Aktör X-User başlığından gelir.
+const auditDesk = new AuditDesk(S, { save: () => store.save(), notify });
+const actorOf = (req: { headers: Record<string, unknown> }): string => String(req.headers["x-user"] ?? "").trim() || "kanzasset";
+/** Elle aksiyonlar günlüğe yazılır; sonra ekranlara haber verilir. */
+const logged = <T>(req: { headers: Record<string, unknown> }, action: string, summary: string, result: T, before?: unknown, after?: unknown): T => {
+  auditDesk.log(actorOf(req), action, summary, before, after);
+  return result;
+};
 
 // Kasa talimatları (K4): mint yalnız Kasa Giriş Fişi'ne karşı, burn kasa çıkışından önce.
 const vault = new VaultDesk({
@@ -202,13 +214,13 @@ app.post<{ Body: { reason?: string } }>("/api/trading/stop", async (req, reply) 
   S.market.manualStop = true; S.market.manualReason = reason;
   notify("trading.manual_stop", "Müşteri işlemleri elle durduruldu", reason);
   changed();
-  return status();
+  return logged(req, "trading.stop", `müşteri işlemleri elle durduruldu: ${reason}`, status());
 });
-app.post("/api/trading/start", async () => {
+app.post("/api/trading/start", async (req) => {
   S.market.manualStop = false; S.market.manualReason = null;
   notify("trading.manual_start", "Müşteri işlemleri elle başlatıldı");
   changed();
-  return status();
+  return logged(req, "trading.start", "müşteri işlemleri elle başlatıldı", status());
 });
 app.get("/api/notifications", async () => ({ unread: S.notices.filter((n) => !n.read).length, items: S.notices.slice(0, 50) }));
 app.post<{ Params: { id: string } }>("/api/notifications/:id/read", async (req) => {
@@ -217,8 +229,54 @@ app.post<{ Params: { id: string } }>("/api/notifications/:id/read", async (req) 
   changed();
   return { ok: true };
 });
-app.put<{ Body: Partial<PricingParams> }>("/api/pricing", async (req) => { Object.assign(S.pricing, req.body ?? {}); changed(); return S.pricing; });
-app.put<{ Body: Partial<OrderParams> }>("/api/order-params", async (req) => { Object.assign(S.orderParams, req.body ?? {}); changed(); return S.orderParams; });
+
+// ---- K9: denetim günlüğü ve ikinci onay ----
+/** Kritik değişiklik iki adımdır: istek 202 ile onay numarası döner, onay farklı kullanıcıdan gelir. */
+interface Approvable { approval_id?: number; approver?: string }
+function gate<T>(req: { headers: Record<string, unknown>; body?: (T & Approvable) | undefined }, action: string): { pending: ApprovalRequest } | { payload: T } {
+  const { approval_id, approver, ...values } = (req.body ?? {}) as T & Approvable;
+  return auditDesk.gate(action, values as T, actorOf(req), approval_id === undefined ? undefined : Number(approval_id), approver);
+}
+const needsApproval = (r: { pending: ApprovalRequest }) => ({
+  needs_approval: true as const, approval_id: r.pending.id, requested_by: r.pending.requested_by,
+  message: `${r.pending.summary}: ikinci onay bekleniyor, onaylayan isteyenden farklı olmalı`,
+  values: r.pending.payload,
+});
+
+app.get<{ Querystring: { limit?: string } }>("/api/audit", async (req) => ({
+  items: auditDesk.list(Number(req.query.limit ?? 100)),
+  second_approval: SECOND_APPROVAL,
+}));
+app.get("/api/approvals", async () => ({ pending: auditDesk.pending(), items: auditDesk.listApprovals(50) }));
+app.post<{ Params: { id: string }; Body: { approver?: string } }>("/api/approvals/:id/approve", async (req, reply) => {
+  try { return auditDesk.approve(Number(req.params.id), req.body?.approver?.trim() || actorOf(req)); }
+  catch (e) { return reply.code(409).send({ error: (e as Error).message }); }
+});
+app.post<{ Params: { id: string } }>("/api/approvals/:id/reject", async (req, reply) => {
+  try { return auditDesk.reject(Number(req.params.id), actorOf(req)); }
+  catch (e) { return reply.code(409).send({ error: (e as Error).message }); }
+});
+
+app.put<{ Body: Partial<PricingParams> & Approvable }>("/api/pricing", async (req, reply) => {
+  try {
+    const g = gate<Partial<PricingParams>>(req, "pricing.update");
+    if ("pending" in g) return reply.code(202).send(needsApproval(g));
+    const before = { ...S.pricing };
+    Object.assign(S.pricing, g.payload);
+    changed();
+    return logged(req, "pricing.update", "fiyatlama parametreleri değişti", S.pricing, before, { ...S.pricing });
+  } catch (e) { return reply.code(409).send({ error: (e as Error).message }); }
+});
+app.put<{ Body: Partial<OrderParams> & Approvable }>("/api/order-params", async (req, reply) => {
+  try {
+    const g = gate<Partial<OrderParams>>(req, "order-params.update");
+    if ("pending" in g) return reply.code(202).send(needsApproval(g));
+    const before = { ...S.orderParams };
+    Object.assign(S.orderParams, g.payload);
+    changed();
+    return logged(req, "order-params.update", "emir parametreleri değişti", S.orderParams, before, { ...S.orderParams });
+  } catch (e) { return reply.code(409).send({ error: (e as Error).message }); }
+});
 
 // ---- K3: emirler ----
 app.get<{ Querystring: { limit?: string } }>("/api/orders", async (req) => ({ items: desk.list(Math.min(500, Number(req.query.limit ?? 200))), unanswered: desk.unanswered(), lateFills: desk.lateFills() }));
@@ -263,7 +321,7 @@ app.post<{ Body: { type: "IN" | "OUT"; qty_mg: number; reason?: string } }>("/ap
       : await vault.requestOut(Number(req.body.qty_mg), "MANUAL");
     inst.timeline.unshift({ ts: new Date().toISOString(), text: `elle talimat · gerekçe: ${reason}` });
     changed();
-    return inst;
+    return logged(req, "vault.manual", `elle kasa ${req.body.type === "IN" ? "girişi" : "çıkışı"} ${Number(req.body.qty_mg) / 1000} g · gerekçe: ${reason}`, inst);
   } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
 });
 /** Tavan yüzünden duran (HOLD) kasa girişini yeniden dener. */
@@ -280,19 +338,37 @@ app.get<{ Querystring: { date?: string } }>("/api/vault/statement", async (req, 
 app.get("/api/treasury", async () => ({ items: treasury.list(), pending: treasury.pending(), stock: S.stock, record: S.record }));
 app.get<{ Params: { id: string } }>("/api/treasury/:id", async (req, reply) => treasury.get(req.params.id) ?? reply.code(404).send({ error: "talep yok" }));
 app.post<{ Body: { side: "BUY" | "SELL"; qty_mg: number; ccy: "USD" | "EUR" | "AED"; maker: string } }>("/api/treasury", async (req, reply) => {
-  try { return treasury.create({ ...req.body, qty_mg: Number(req.body.qty_mg) }); } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+  try {
+    const t = treasury.create({ ...req.body, qty_mg: Number(req.body.qty_mg) });
+    return logged(req, "treasury.create", `hazine ${req.body.side === "BUY" ? "alış" : "satış"} talebi ${Number(req.body.qty_mg) / 1000} g · isteyen ${req.body.maker}`, t);
+  } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
 });
 app.post<{ Params: { id: string }; Body: { approver: string } }>("/api/treasury/:id/approve", async (req, reply) => {
-  try { return await treasury.approve(req.params.id, req.body?.approver); } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+  try {
+    const t = await treasury.approve(req.params.id, req.body?.approver);
+    return logged(req, "treasury.approve", `hazine talebi ${req.params.id} onaylandı · onaycı ${req.body?.approver}`, t);
+  } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
 });
 app.post<{ Params: { id: string }; Body: { actor?: string } }>("/api/treasury/:id/cancel", async (req, reply) => {
-  try { return treasury.cancel(req.params.id, req.body?.actor?.trim() || "hazineci"); } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+  try {
+    const t = treasury.cancel(req.params.id, req.body?.actor?.trim() || "hazineci");
+    return logged(req, "treasury.cancel", `hazine talebi ${req.params.id} iptal edildi`, t);
+  } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
 });
 /** Onay matrisi önizlemesi: girilen gram kaç onay ister. */
 app.get<{ Querystring: { qty_mg?: string } }>("/api/treasury-approvals", async (req) => ({ qty_mg: Number(req.query.qty_mg ?? 0), required: requiredApprovals(Number(req.query.qty_mg ?? 0), S.stock) }));
 
 /** Stok parametreleri (K9 önü): taban, tavan, hedef, mint politikası, kasaya konuluyor tavanı, onay matrisi. */
-app.put<{ Body: Partial<StockParams> }>("/api/stock-params", async (req) => { Object.assign(S.stock, req.body ?? {}); changed(); return S.stock; });
+app.put<{ Body: Partial<StockParams> & Approvable }>("/api/stock-params", async (req, reply) => {
+  try {
+    const g = gate<Partial<StockParams>>(req, "stock-params.update");
+    if ("pending" in g) return reply.code(202).send(needsApproval(g));
+    const before = { ...S.stock };
+    Object.assign(S.stock, g.payload);
+    changed();
+    return logged(req, "stock-params.update", "stok bandı ve onay matrisi değişti", S.stock, before, { ...S.stock });
+  } catch (e) { return reply.code(409).send({ error: (e as Error).message }); }
+});
 
 // ---- K6: fiziksel teslimat · K7: rafinasyon ----
 app.get("/api/fulfilment", async () => ({
@@ -331,22 +407,42 @@ app.post<{ Params: { id: string } }>("/api/refining/:id/approve", async (req, re
 app.post<{ Params: { id: string }; Body: { reason?: string } }>("/api/refining/:id/cancel", async (req, reply) => {
   try { return await fulfilment.cancelRefining(req.params.id, req.body?.reason?.trim() || "Kanzasset iptal etti"); } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
 });
-app.put<{ Body: Partial<FulfilmentParams> }>("/api/fulfilment-params", async (req) => { Object.assign(S.fulfilment, req.body ?? {}); changed(); return S.fulfilment; });
+app.put<{ Body: Partial<FulfilmentParams> & Approvable }>("/api/fulfilment-params", async (req, reply) => {
+  try {
+    const g = gate<Partial<FulfilmentParams>>(req, "fulfilment-params.update");
+    if ("pending" in g) return reply.code(202).send(needsApproval(g));
+    const before = { ...S.fulfilment };
+    Object.assign(S.fulfilment, g.payload);
+    changed();
+    return logged(req, "fulfilment-params.update", `burn anı ${S.fulfilment.burnMoment}`, S.fulfilment, before, { ...S.fulfilment });
+  } catch (e) { return reply.code(409).send({ error: (e as Error).message }); }
+});
 
 // ---- K8: mahsuplaşma ----
 app.get("/api/settlements", async () => ({ items: settlement.list(), open: settlement.open() ?? null, record: S.record }));
 app.post<{ Body: { reason?: string; trigger?: string } }>("/api/settlements", async (req, reply) => {
-  try { return await settlement.request(req.body?.trigger ?? "REQUEST_KZ", req.body?.reason?.trim()); }
-  catch (e) { return reply.code(502).send({ error: (e as Error).message }); }
+  try {
+    const w = await settlement.request(req.body?.trigger ?? "REQUEST_KZ", req.body?.reason?.trim());
+    return logged(req, "settlement.request", `mahsuplaşma penceresi istendi${req.body?.reason ? ": " + req.body.reason.trim() : ""}`, w);
+  } catch (e) { return reply.code(502).send({ error: (e as Error).message }); }
 });
 app.post<{ Params: { id: string } }>("/api/settlements/:id/reconcile", async (req, reply) => {
   try { return await settlement.reconcile(req.params.id); } catch (e) { return reply.code(502).send({ error: (e as Error).message }); }
 });
 app.post<{ Params: { id: string } }>("/api/settlements/:id/gold-leg", async (req, reply) => {
-  try { return await settlement.goldLeg(req.params.id); } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+  try {
+    const w = await settlement.goldLeg(req.params.id);
+    return logged(req, "settlement.gold_leg", `mahsuplaşma ${req.params.id} altın bacağı kasa talimatına devredildi`, w);
+  } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
 });
-app.post<{ Params: { id: string }; Body: { ccy?: string } }>("/api/settlements/:id/pay", async (req, reply) => {
-  try { return await settlement.pay(req.params.id, req.body?.ccy ?? "USD"); } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
+/** Ödeme talimatı kritiktir (K5: yalnız şirket banka hesabından): ikinci onay ister. */
+app.post<{ Params: { id: string }; Body: { ccy?: string } & Approvable }>("/api/settlements/:id/pay", async (req, reply) => {
+  try {
+    const g = gate<{ ccy?: string }>({ headers: req.headers as Record<string, unknown>, body: { ccy: req.body?.ccy ?? "USD", approval_id: req.body?.approval_id, approver: req.body?.approver } }, "settlement.pay");
+    if ("pending" in g) return reply.code(202).send(needsApproval(g));
+    const w = await settlement.pay(req.params.id, g.payload.ccy ?? "USD");
+    return logged(req, "settlement.pay", `mahsuplaşma ${req.params.id} · ${g.payload.ccy} bacağı için ödeme talimatı verildi`, w);
+  } catch (e) { return reply.code(e instanceof ApprovalError ? 409 : 400).send({ error: (e as Error).message }); }
 });
 
 // ---- K2: rafineri hesapları ----
@@ -360,16 +456,24 @@ app.post("/api/record/snapshot", async (req, reply) => {
     return { account: acc, match: S.record.match, diffs: S.record.diffs, seqGap: r.seqGap };
   } catch (e) { return reply.code(502).send({ error: `rafineriye ulaşılamadı: ${(e as Error).message}` }); }
 });
-app.post<{ Body: { explanation?: string } }>("/api/record/resolve", async (req, reply) => {
+/** Uyuşmazlık düzeltmesi kritiktir: tek kişi kaydı düzeltemez, ikinci onay ister. */
+app.post<{ Body: { explanation?: string } & Approvable }>("/api/record/resolve", async (req, reply) => {
   const explanation = req.body?.explanation?.trim();
   if (!explanation) return reply.code(400).send({ error: "fark açıklaması zorunlu" });
+  let approved: { explanation?: string };
+  try {
+    const g = gate<{ explanation?: string }>(req, "record.resolve");
+    if ("pending" in g) return reply.code(202).send(needsApproval(g));
+    approved = g.payload;
+  } catch (e) { return reply.code(409).send({ error: (e as Error).message }); }
+  void approved;
   try {
     const acc = await amr.account();
     resolveWithSnapshot(S.record, acc, explanation);
     notify("account.resolved", "RECONCILE çözüldü", explanation);
     vault.flushMints(); // bloke kalktı: fişi gelmiş ama bekleyen mint'ler yapılır
     changed();
-    return { record: S.record, mint_block: vault.mintBlock(), awaiting_mint: vault.awaitingMint().length };
+    return logged(req, "record.resolve", `uyuşmazlık düzeltildi: ${explanation}`, { record: S.record, mint_block: vault.mintBlock(), awaiting_mint: vault.awaitingMint().length });
   } catch (e) { return reply.code(502).send({ error: `rafineriye ulaşılamadı: ${(e as Error).message}` }); }
 });
 // demo: KZ kaydını bilerek kaydırır (eşleşme uyuşmazlığı senaryosu S6). KZ_DEMO=0 ile kapanır.
