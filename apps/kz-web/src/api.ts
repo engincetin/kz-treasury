@@ -145,7 +145,8 @@ export const api = {
   resolve: (id: string) => req<CustomerOrder>(`/api/orders/${encodeURIComponent(id)}/resolve`, { method: "POST", body: "{}" }),
   record: () => req<{ record: KzRecord; checks: Checks }>("/api/record"),
   snapshot: () => req<{ account: Account; match: string; diffs: Diff[]; seqGap: boolean }>("/api/record/snapshot", { method: "POST", body: "{}" }),
-  resolveRecord: (explanation: string) => req<{ record: KzRecord }>("/api/record/resolve", { method: "POST", body: JSON.stringify({ explanation }) }),
+  resolveRecord: (explanation: string, approval?: { approval_id: number; approver: string }) =>
+    req<{ record: KzRecord } | NeedsApproval>("/api/record/resolve", { method: "POST", body: JSON.stringify({ explanation, ...(approval ?? {}) }) }),
   events: () => req<EventLog[]>("/api/events"),
   document: (id: string) => req<Doc>(`/api/documents/${encodeURIComponent(id)}`),
   // K4 kasa talimatları

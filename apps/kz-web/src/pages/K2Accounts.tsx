@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { api, FIELD_TR, fmtDT, fmtG, fmtMoney, type useLive } from "../api.ts";
+import { api, currentUser, FIELD_TR, fmtDT, fmtG, fmtMoney, needsApproval, type useLive } from "../api.ts";
 
 type Live = ReturnType<typeof useLive>;
 
@@ -11,6 +11,9 @@ export function K2Accounts({ live }: { live: Live }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [explanation, setExplanation] = useState("");
+  /** Uyuşmazlık düzeltmesi kritik aksiyondur: sunucu önce onay ister, uygulamaz. */
+  const [pending, setPending] = useState<{ id: number; requestedBy: string } | null>(null);
+  const [approver, setApprover] = useState("yonetici");
   const run = async (fn: () => Promise<string>) => { setBusy(true); setMsg(""); try { setMsg(await fn()); await live.refresh(); } catch (e) { setMsg(`Hata: ${(e as Error).message}`); } finally { setBusy(false); } };
 
   const last = r?.lastAccount;
@@ -77,11 +80,32 @@ export function K2Accounts({ live }: { live: Live }) {
           {r?.match === "RECONCILE" && (
             <>
               <input className="wide" placeholder="fark açıklaması (zorunlu)" value={explanation} onChange={(e) => setExplanation(e.target.value)} />
-              <button className="danger" disabled={busy || !explanation.trim()} onClick={() => run(async () => { await api.resolveRecord(explanation.trim()); setExplanation(""); return "RECONCILE çözüldü: rafineri fotoğrafı KZ kaydına alındı, düzeltme kaydı tutuldu."; })}>RECONCILE çöz</button>
+              <button className="danger" disabled={busy || !explanation.trim() || !!pending} onClick={() => run(async () => {
+                const res = await api.resolveRecord(explanation.trim());
+                if (needsApproval(res)) {
+                  setPending({ id: res.approval_id, requestedBy: res.requested_by });
+                  return `İkinci onay bekleniyor (onay ${res.approval_id}). İsteyen ${res.requested_by}; onaylayan farklı bir kullanıcı olmalı. Düzeltme henüz uygulanmadı.`;
+                }
+                setExplanation("");
+                return "RECONCILE çözüldü: rafineri fotoğrafı KZ kaydına alındı, düzeltme kaydı tutuldu.";
+              })}>RECONCILE çöz</button>
             </>
           )}
           {msg && <span className="small">{msg}</span>}
         </div>
+        {pending && (
+          <div className="row" style={{ marginTop: 10, padding: 10, border: "1px solid var(--warn)", borderRadius: 8 }}>
+            <span className="small">Onay {pending.id} · isteyen <b>{pending.requestedBy}</b> · onaylayan:</span>
+            <input value={approver} onChange={(e) => setApprover(e.target.value)} />
+            <button className="primary" disabled={busy || approver.trim() === pending.requestedBy} title={approver.trim() === pending.requestedBy ? "isteyen kendi isteğini onaylayamaz" : ""} onClick={() => run(async () => {
+              await api.resolveRecord(explanation.trim(), { approval_id: pending.id, approver: approver.trim() });
+              setPending(null); setExplanation("");
+              return "RECONCILE çözüldü: rafineri fotoğrafı KZ kaydına alındı, düzeltme kaydı tutuldu.";
+            })}>Onayla ve uygula</button>
+            <button className="ghost" disabled={busy} onClick={() => run(async () => { await api.rejectApproval(pending.id); setPending(null); return "Düzeltme isteği reddedildi."; })}>Reddet</button>
+            <span className="small">Aktif kullanıcı: {currentUser.name} (üst şeritten değişir)</span>
+          </div>
+        )}
       </section>
 
       <div className="grid c2">
