@@ -26,7 +26,8 @@ export interface KzSettlement {
   kz_gold_mg?: number;
   kz_money?: { ccy: string; cents: number }[];
   diffs?: { field: string; amr: string; kz: string }[];
-  gold_leg?: { direction: string; qty_mg: number; vault_ref?: string; done: boolean };
+  scope?: string[];
+  gold_leg?: { direction: string; qty_mg: number; vault_ref?: string; done: boolean; proposed_ts?: string; approved_ts?: string };
   money_leg: { ccy: string; net_cents: number; direction: string; paid: boolean; bank_ref?: string }[];
   doc_id?: string;
   created_ts: string;
@@ -52,10 +53,24 @@ export class KzSettlementDesk {
   get(id: string) { return this.windows.find((w) => w.settlement_id === id); }
   open() { return this.windows.find((w) => w.status !== "SETTLED"); }
 
-  /** Mahsuplaşma talep et (K8) ya da rafinerinin açtığı pencereyi al. */
-  async request(trigger = "REQUEST_KZ", reason?: string): Promise<KzSettlement> {
-    const s = await this.d.amr.settlementOpen(trigger, reason);
-    return this.absorb(s, `pencere açıldı (${trigger})${reason ? ` · ${reason}` : ""}`);
+  /**
+   * Mahsuplaşma talep et (K8) ya da rafinerinin açtığı pencereyi al.
+   * Kapsam verilmezse bütün bacaklar (altın + üç kur) kapanır; gün içi talepte tek bacak seçilebilir.
+   */
+  async request(trigger = "REQUEST_KZ", reason?: string, scope?: string[]): Promise<KzSettlement> {
+    const s = await this.d.amr.settlementOpen(trigger, reason, scope);
+    return this.absorb(s, `pencere açıldı (${trigger})${scope?.length ? ` · kapsam ${scope.join(" + ")}` : ""}${reason ? ` · ${reason}` : ""}`);
+  }
+
+  /**
+   * Rafineri "kasaya koyalım mı" diye teklif etti: onaylarız ve ardından kasa girişi talebini göndeririz.
+   * Onaydan önce kasa girişi talebi gitmez; fiş kesilmeden mint de olmaz.
+   */
+  async approveGold(id: string): Promise<KzSettlement> {
+    const s = await this.d.amr.settlementApproveGold(id);
+    const w = this.absorb(s, "altın teklifi onaylandı: kasaya konsun");
+    await this.goldLeg(id);
+    return this.get(id) ?? w;
   }
 
   /** Rafinerinin ekstresini çeker ve KZ kaydıyla karşılaştırır (mutabakat adımı). */
@@ -90,11 +105,16 @@ export class KzSettlementDesk {
     return this.absorb(out, "MISMATCH");
   }
 
-  /** Altın bacağı: T > 0 kasa girişi, T < 0 burn + kasa çıkışı. Kasa talimatları masası yürütür. */
+  /**
+   * Altın bacağını yürütür.
+   *   T > 0: rafineri teklif etmiş ve biz onaylamışızdır; kasa girişi talebi gider, fiş gelince mint olur.
+   *   T < 0: önce burn, sonra kasa çıkışı talebi (requestOut burn'ü kendi içinde yapar). Sıra bozulamaz.
+   */
   async goldLeg(id: string): Promise<KzSettlement> {
     const w = this.get(id);
     if (!w) throw new Error("pencere yok");
     const t = this.d.record().current_account.gold_mg;
+    if (t > 0 && w.gold_leg?.proposed_ts && !w.gold_leg.approved_ts) throw new Error("rafinerinin altın teklifi önce onaylanmalı");
     if (t === 0) {
       w.gold_leg = { direction: "NONE", qty_mg: 0, done: true };
       this.log(w, "altın bacağı: T zaten sıfır, işlem yok");
@@ -154,6 +174,12 @@ export class KzSettlementDesk {
       this.d.notify("settlement.requested", "Rafineri mahsuplaşma talep etti", data?.reason ?? "");
       return `mahsuplaşma talebi (${data?.trigger ?? ""})`;
     }
+    if (type === "settlement.gold_proposed") {
+      this.d.notify("settlement.gold_proposed", "Rafineri altını kasaya koymayı teklif etti", `${g(data?.qty_mg ?? 0)} g · onayınız bekleniyor`);
+      const w = id ? this.get(id) : undefined;
+      if (w) { w.gold_leg = { ...(w.gold_leg ?? { direction: "VAULT_IN", qty_mg: data?.qty_mg ?? 0, done: false }), direction: "VAULT_IN", qty_mg: data?.qty_mg ?? 0, proposed_ts: data?.proposed_ts }; this.log(w, `rafineri teklifi: ${g(data?.qty_mg ?? 0)} g kasaya konsun mu`); this.d.onChange(); }
+      return `altın teklifi ${id ?? ""}`;
+    }
     if (type === "settlement.opened") {
       this.d.notify("settlement.opened", "Mahsuplaşma penceresi açıldı", `${data?.trigger ?? ""}`);
       if (id) void this.reconcile(id).catch(() => {});
@@ -183,7 +209,16 @@ export class KzSettlementDesk {
     if (s.statement) { w.amr_gold_mg = s.statement.gold_mg; w.amr_money = s.statement.money.map((m) => ({ ccy: m.ccy, cents: m.cents })); }
     if (s.diffs) w.diffs = s.diffs;
     if (s.doc_id) w.doc_id = s.doc_id;
-    if (s.gold_leg && w.gold_leg) w.gold_leg.done = s.gold_leg.done;
+    if (s.scope) w.scope = s.scope;
+    if (s.gold_leg) {
+      // birleştirilir, üzerine yazılmaz: geç gelen bir olay teklifi ya da onayı silmesin
+      w.gold_leg = {
+        direction: s.gold_leg.direction, qty_mg: s.gold_leg.qty_mg,
+        vault_ref: w.gold_leg?.vault_ref, done: s.gold_leg.done || (w.gold_leg?.done ?? false),
+        proposed_ts: s.gold_leg.proposed_ts ?? w.gold_leg?.proposed_ts,
+        approved_ts: s.gold_leg.approved_ts ?? w.gold_leg?.approved_ts,
+      };
+    }
     this.log(w, note);
     this.d.onChange();
     return w;

@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, fmtG, fmtMoney, STL_STATUS_TR, type CustomerOrder, type KzSettlement, type useLive } from "../api.ts";
-import { nextAction, steps } from "../settlementFlow.ts";
+import { legs, summary } from "../settlementFlow.ts";
 
 type Live = ReturnType<typeof useLive>;
 
@@ -86,7 +86,7 @@ export function K1Overview({ live }: { live: Live }) {
           {stl ? (
             <>
               <div className="status"><span className={`dot ${stl.status === "MISMATCH" ? "bad" : stl.status === "SETTLED" ? "ok" : "warn"}`} />{STL_STATUS_TR[stl.status] ?? stl.status}</div>
-              <div className="small" style={{ marginTop: 6 }}>adım {steps(stl).filter((x) => x.state === "done").length}/5 · {nextAction(stl).title}</div>
+              <div className="small" style={{ marginTop: 6 }}>{legs(stl).filter((l) => l.state === "kapandı" || l.state === "yok").length}/{legs(stl).length} bacak kapandı · {summary(stl)}</div>
             </>
           ) : (
             <>

@@ -98,7 +98,8 @@ export interface KzSettlement {
   amr_gold_mg?: number; amr_money?: { ccy: string; cents: number }[];
   kz_gold_mg?: number; kz_money?: { ccy: string; cents: number }[];
   diffs?: { field: string; amr: string; kz: string }[];
-  gold_leg?: { direction: string; qty_mg: number; vault_ref?: string; done: boolean };
+  scope?: string[];
+  gold_leg?: { direction: string; qty_mg: number; vault_ref?: string; done: boolean; proposed_ts?: string; approved_ts?: string };
   money_leg: { ccy: string; net_cents: number; direction: string; paid: boolean; bank_ref?: string }[];
   doc_id?: string; created_ts: string; timeline: { ts: string; text: string }[];
 }
@@ -182,7 +183,8 @@ export const api = {
   fulfilmentParams: (p: { burnMoment: "DELIVERED" | "SHIPPED" } & Approval) => req<unknown>("/api/fulfilment-params", { method: "PUT", body: JSON.stringify(p) }),
   // K8 mahsuplaşma
   settlements: () => req<{ items: KzSettlement[]; open: KzSettlement | null; record: KzRecord }>("/api/settlements"),
-  settlementRequest: (reason?: string) => req<KzSettlement>("/api/settlements", { method: "POST", body: JSON.stringify({ trigger: "REQUEST_KZ", reason }) }),
+  settlementRequest: (reason?: string, scope?: string[]) => req<KzSettlement>("/api/settlements", { method: "POST", body: JSON.stringify({ trigger: "REQUEST_KZ", reason, scope }) }),
+  settlementApproveGold: (id: string) => req<KzSettlement>(`/api/settlements/${encodeURIComponent(id)}/gold/approve`, { method: "POST", body: "{}" }),
   settlementReconcile: (id: string) => req<KzSettlement>(`/api/settlements/${encodeURIComponent(id)}/reconcile`, { method: "POST", body: "{}" }),
   settlementGoldLeg: (id: string) => req<KzSettlement>(`/api/settlements/${encodeURIComponent(id)}/gold-leg`, { method: "POST", body: "{}" }),
   settlementPay: (id: string, ccy: string, approval?: { approval_id: number; approver: string }) =>

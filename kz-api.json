@@ -1393,7 +1393,7 @@
         }
       },
       "post": {
-        "summary": "K8 pencere talebi",
+        "summary": "K8 pencere talebi (kapsam seçilebilir)",
         "requestBody": {
           "content": {
             "application/json": {
@@ -1403,6 +1403,13 @@
                   "trigger": {
                     "type": "string",
                     "description": "REQUEST_KZ"
+                  },
+                  "scope": {
+                    "type": "string",
+                    "description": [
+                      "GOLD",
+                      "USD"
+                    ]
                   },
                   "reason": {
                     "type": "string",
@@ -1431,6 +1438,34 @@
       "post": {
         "summary": "K8 mutabakat: rafineri ekstresini KZ kaydıyla karşılaştır",
         "description": "eşitse ekstre onaylanır (RECONCILED), farklıysa kendi toplamlarımız gönderilir (MISMATCH).",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/settlements/{id}/gold/approve": {
+      "post": {
+        "summary": "K8 rafinerinin altın teklifini onayla",
+        "description": "rafineri bize gram borçluyken kasaya konmasını onaylar; onaydan sonra kasa girişi talebi gider, fiş gelince mint olur.",
         "parameters": [
           {
             "name": "id",
@@ -1684,7 +1719,7 @@
     },
     "/api/documents": {
       "get": {
-        "summary": "K12 belgelerin Kanzasset kopyası (künye listesi)",
+        "summary": "K9 belgelerin Kanzasset kopyası (künye listesi)",
         "description": "rafineri belgeleri olayla gelen numaradan çekilir, sha256 özeti yeniden hesaplanır (hash_ok), anahtar verilmişse imza doğrulanır (signature_ok) ve saklanır.",
         "responses": {
           "200": {
@@ -1702,7 +1737,7 @@
     },
     "/api/documents/{id}": {
       "get": {
-        "summary": "K12 belgeyi kendi kaydımızdan getir (yoksa rafineriden çekip saklar)",
+        "summary": "K9 belgeyi kendi kaydımızdan getir (yoksa rafineriden çekip saklar)",
         "parameters": [
           {
             "name": "id",
@@ -1729,7 +1764,7 @@
     },
     "/api/documents/{id}/pdf": {
       "get": {
-        "summary": "K12 belgenin PDF'i (rafineriden imzalı istekle çekilir, aynen aktarılır)",
+        "summary": "K9 belgenin PDF'i (rafineriden imzalı istekle çekilir, aynen aktarılır)",
         "parameters": [
           {
             "name": "id",
@@ -1756,7 +1791,7 @@
     },
     "/api/documents/sync": {
       "post": {
-        "summary": "K12 geriye dönük eşitleme: emir, kasa, teslimat, rafinasyon ve mahsuplaşma kayıtlarındaki belge numaralarını tara, eksikleri çek",
+        "summary": "K9 geriye dönük eşitleme: emir, kasa, teslimat, rafinasyon ve mahsuplaşma kayıtlarındaki belge numaralarını tara, eksikleri çek",
         "responses": {
           "200": {
             "description": "{ fetched, failed[], count }",

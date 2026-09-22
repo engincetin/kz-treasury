@@ -1,94 +1,110 @@
 /**
- * Mahsuplaşma akışının ekran karşılığı (K8, K1).
+ * Mahsuplaşmanın ekran karşılığı (K8, K1).
  *
- * Pencerenin durumu beş adıma indirgenir ve her an için tek bir "sıradaki adım" cümlesi üretilir.
- * Rafineri tarafındaki karşılığıyla aynı adımlar, Kanzasset'in yapacağı işlerle.
- * İş kuralları sunucudadır; burada yalnız sunum vardır.
+ * Rafineri tarafındaki karşılığıyla aynı: pencere tek bir listeye indirgenir, kapatılacak her kalem
+ * bir "bacak"tır (altın, USD, EUR, AED). Her bacağın tek bir hâli ve o an yapılacak tek bir işi vardır.
+ * İş kuralları sunucudadır; burada yalnız sunum.
  */
 import type { KzSettlement } from "./api.ts";
-
-export type StepState = "done" | "now" | "wait" | "bad";
-export interface Step { n: number; title: string; detail: string; state: StepState }
 
 const g = (mg: number) => (mg / 1000).toLocaleString("tr-TR", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
 const money = (c: number) => (c / 100).toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-export const openMoneyLegs = (w: KzSettlement) => w.money_leg.filter((m) => m.net_cents !== 0 && !m.paid);
-export const goldPending = (w: KzSettlement) => !!w.gold_leg && w.gold_leg.direction !== "NONE" && !w.gold_leg.done;
+export type LegState = "kapandı" | "sizde" | "karşıda" | "yok";
+export type LegAction = "gold-approve" | "gold-send" | "gold-info" | "pay" | null;
 
-export function steps(w: KzSettlement | null): Step[] {
-  const st = w?.status;
-  const drafted = !!w && st !== "REQUESTED" && st !== "OPEN";
-  const reconciled = !!w && (st === "RECONCILED" || st === "PAYMENT_PENDING" || st === "SETTLED");
-  const mismatch = st === "MISMATCH";
-  const goldDone = !!w && (!w.gold_leg || w.gold_leg.direction === "NONE" || w.gold_leg.done);
-  const moneyDone = !!w && openMoneyLegs(w).length === 0;
-  const settled = st === "SETTLED";
-
-  return [
-    { n: 1, title: "Pencere", detail: w ? w.settlement_id : "açık pencere yok", state: w ? "done" : "wait" },
-    { n: 2, title: "Rafineri ekstresi", detail: drafted ? "ekstre geldi" : "rafineriden bekleniyor", state: drafted ? "done" : w ? "now" : "wait" },
-    {
-      n: 3, title: "Mutabakat",
-      detail: mismatch ? `${w!.diffs?.length ?? 0} fark var` : reconciled ? "KZ kaydıyla birebir eşit" : drafted ? "karşılaştırılıyor" : "ekstre bekleniyor",
-      state: mismatch ? "bad" : reconciled ? "done" : drafted ? "now" : "wait",
-    },
-    {
-      n: 4, title: "Altın bacağı",
-      detail: !w?.gold_leg ? "mutabakattan sonra belirir"
-        : w.gold_leg.direction === "NONE" ? "gram farkı yok"
-        : `${w.gold_leg.direction === "VAULT_IN" ? "kasa girişi" : "kasa çıkışı"} ${g(w.gold_leg.qty_mg)} g${w.gold_leg.done ? " · kapandı" : w.gold_leg.vault_ref ? " · rafineri kabulü bekleniyor" : " · talimat gönderilecek"}`,
-      state: goldDone && reconciled ? "done" : reconciled ? "now" : "wait",
-    },
-    {
-      n: 5, title: "Para bacağı",
-      detail: !w ? "mutabakattan sonra belirir"
-        : moneyDone ? (settled ? "kapandı" : "kapanacak kalem yok")
-        : openMoneyLegs(w).map((m) => `${m.ccy} ${money(Math.abs(m.net_cents))}`).join(" · "),
-      state: settled ? "done" : reconciled && goldDone ? (moneyDone ? "done" : "now") : "wait",
-    },
-  ];
-}
-
-export interface NextAction {
-  title: string;
-  body: string;
-  action: "request" | "reconcile" | "gold" | "pay-out" | "pay-in" | "done" | null;
+export interface Leg {
+  key: string;
+  label: string;
+  amount: string;
+  who: string;
+  state: LegState;
+  note: string;
+  action: LegAction;
+  actionLabel?: string;
   ccy?: string;
 }
 
-/** Kanzasset tarafının "şimdi ne yapmalıyım" cümlesi. */
-export function nextAction(w: KzSettlement | null): NextAction {
-  if (!w) return {
-    title: "Açık pencere yok",
-    body: "Rafineri kesim saatinde pencereyi kendiliğinden açar. Erken netleşmek isterseniz siz de talep edebilirsiniz.",
-    action: "request",
-  };
-  switch (w.status) {
-    case "REQUESTED":
-    case "OPEN":
-      return { title: "Rafinerinin ekstresi bekleniyor", body: "Pencere açık. Rafineri gün içindeki hareketlerden ekstre çıkarıp gönderecek; geldiğinde mutabakat kendiliğinden çalışır.", action: null };
-    case "DRAFT":
-      return { title: "Mutabakat çalışıyor", body: "Rafineri ekstresi geldi, KZ kaydıyla karşılaştırılıyor. Kendiliğinden ilerlemezse elle çalıştırabilirsiniz.", action: "reconcile" };
-    case "MISMATCH":
-      return { title: "İki ekstre tutmadı", body: "Kendi toplamlarımız rafineriye gönderildi. Farklar aşağıda; rafineri düzeltip ekstreyi yeniden çıkarınca mutabakat tekrar çalışır. Fark kapanmadan ödeme yapılmaz.", action: "reconcile" };
-    case "RECONCILED":
-    case "PAYMENT_PENDING": {
-      if (goldPending(w)) {
-        return w.gold_leg!.vault_ref
-          ? { title: "Kasa talimatı rafineri kabulünü bekliyor", body: `${w.gold_leg!.vault_ref} gönderildi. Rafineri kabul edip fişi kesince cari hesaptaki gram sıfırlanır ve bu adım kapanır.`, action: null }
-          : { title: "Altın bacağını gönderin", body: `Cari hesaptaki ${g(w.gold_leg!.qty_mg)} g için ${w.gold_leg!.direction === "VAULT_IN" ? "kasa girişi" : "kasa çıkışı"} talimatı hazır. Talimat kasa talimatları masasına düşer, sıra kuralı orada korunur.`, action: "gold" };
+/** Mutabakat adımının hâli: rafineri ekstresi geldi mi, KZ kaydıyla eşit mi. */
+export function reconciliation(w: KzSettlement | null): { state: "yok" | "bekliyor" | "eşit" | "fark"; text: string; canReconcile: boolean } {
+  if (!w) return { state: "yok", text: "açık pencere yok", canReconcile: false };
+  if (w.status === "OPEN" || w.status === "REQUESTED") return { state: "yok", text: "rafinerinin ekstresi bekleniyor", canReconcile: true };
+  if (w.status === "DRAFT") return { state: "bekliyor", text: "ekstre geldi, KZ kaydıyla karşılaştırılıyor", canReconcile: true };
+  if (w.status === "MISMATCH") return { state: "fark", text: `${w.diffs?.length ?? 0} satırda fark var: kalemler düzeltilip yeniden karşılaştırılmalı`, canReconcile: true };
+  return { state: "eşit", text: "KZ kaydı ile rafineri ekstresi birebir eşit, bacaklar kapatılabilir", canReconcile: false };
+}
+
+/** Kapsam metni: hangi bacaklar bu pencerede kapatılıyor. */
+export function scopeText(w: KzSettlement | null): string {
+  const s = w?.scope;
+  if (!s || s.length === 0 || s.length >= 4) return "tümü (altın + USD + EUR + AED)";
+  return s.map((x) => (x === "GOLD" ? "altın" : x)).join(" + ");
+}
+
+/**
+ * Kanzasset tarafının bacak listesi.
+ * Altın bacağında sıra sabittir: rafineri borçluysa teklifini onaylarız ve kasa girişi talebi gider
+ * (fiş gelince mint). Biz borçluysak önce token yakılır, sonra kasa çıkışı talebi gider.
+ */
+export function legs(w: KzSettlement | null): Leg[] {
+  if (!w) return [];
+  const rec = reconciliation(w);
+  const ready = rec.state === "eşit";
+  const out: Leg[] = [];
+  const inScope = (k: string) => !w.scope || w.scope.length === 0 || w.scope.includes(k);
+
+  if (inScope("GOLD")) {
+    const gl = w.gold_leg;
+    if (!gl || gl.direction === "NONE") {
+      out.push({ key: "GOLD", label: "Altın", amount: "0,000 g", who: "gram farkı yok", state: "yok", note: "cari hesapta kapanacak gram yok", action: null });
+    } else if (gl.done) {
+      out.push({ key: "GOLD", label: "Altın", amount: `${g(gl.qty_mg)} g`, who: gl.direction === "VAULT_IN" ? "rafineri borçluydu" : "Kanzasset borçluydu", state: "kapandı", note: `kasa talimatı kapandı${gl.vault_ref ? ` (${gl.vault_ref})` : ""}, T sıfırlandı`, action: null });
+    } else if (gl.direction === "VAULT_IN") {
+      if (!gl.proposed_ts) {
+        out.push({ key: "GOLD", label: "Altın", amount: `${g(gl.qty_mg)} g`, who: "rafineri borçlu", state: "karşıda", note: "rafinerinin \"kasaya koyalım mı\" teklifi bekleniyor", action: null });
+      } else if (!gl.approved_ts) {
+        out.push({ key: "GOLD", label: "Altın", amount: `${g(gl.qty_mg)} g`, who: "rafineri borçlu", state: ready ? "sizde" : "karşıda", note: "rafineri teklif etti: onaylayın, kasa girişi talebi gitsin. Fiş gelince mint edilir", action: ready ? "gold-approve" : null, actionLabel: "Onayla: kasaya konsun" });
+      } else if (!gl.vault_ref) {
+        out.push({ key: "GOLD", label: "Altın", amount: `${g(gl.qty_mg)} g`, who: "rafineri borçlu", state: "sizde", note: "onaylandı; kasa girişi talebi gönderilecek", action: "gold-send", actionLabel: "Kasa girişi talebi gönder" });
+      } else {
+        out.push({ key: "GOLD", label: "Altın", amount: `${g(gl.qty_mg)} g`, who: "rafineri borçlu", state: "karşıda", note: `talep gönderildi (${gl.vault_ref}); rafinerinin kabulü ve Kasa Giriş Fişi bekleniyor, fiş gelince mint olur`, action: "gold-info", actionLabel: "K4 Kasa hesabı" });
       }
-      const open = openMoneyLegs(w);
-      if (open.length === 0) return { title: "Kapanış bekleniyor", body: "İki bacak da kapandı, pencere birazdan SETTLED olacak.", action: null };
-      const first = open[0];
-      return first.direction === "KZ_TO_AMR"
-        ? { title: `${first.ccy} ${money(Math.abs(first.net_cents))} ödemesi bizden`, body: "Ödeme YALNIZ şirket banka hesabından yapılır (K5); müşteri hesabı asla ödemez. Ödeme talimatı kritik aksiyondur: farklı bir kullanıcının ikinci onayı gerekir.", action: "pay-out", ccy: first.ccy }
-        : { title: `${first.ccy} ${money(Math.abs(first.net_cents))} ödemesi rafineriden`, body: "Rafineri ödeyecek. Para şirket hesabına geçtiğinde \"Ödeme alındı\" deyin; cari hesabın o kur bacağı kapanır.", action: "pay-in", ccy: first.ccy };
+    } else {
+      if (!gl.vault_ref) {
+        out.push({ key: "GOLD", label: "Altın", amount: `${g(gl.qty_mg)} g`, who: "Kanzasset borçlu", state: ready ? "sizde" : "karşıda", note: "önce token yakılır, sonra kasa çıkışı talebi gider. Rafineri bizim talebimiz olmadan kasadan gram çıkaramaz", action: ready ? "gold-send" : null, actionLabel: "Yak ve kasa çıkışı talebi gönder" });
+      } else {
+        out.push({ key: "GOLD", label: "Altın", amount: `${g(gl.qty_mg)} g`, who: "Kanzasset borçlu", state: "karşıda", note: `token yakıldı, talep gönderildi (${gl.vault_ref}); rafinerinin kabulü bekleniyor`, action: "gold-info", actionLabel: "K4 Kasa hesabı" });
+      }
     }
-    case "SETTLED":
-      return { title: "Pencere kapandı", body: "Altın ve para bacağı kapandı, cari hesap sıfırlandı. Mahsuplaşma Ekstresi belgesi rafineriden indirilebilir.", action: "done" };
-    default:
-      return { title: w.status, body: "", action: null };
   }
+
+  for (const m of w.money_leg) {
+    if (m.net_cents === 0) {
+      out.push({ key: m.ccy, label: m.ccy, amount: money(0), who: "kapanacak kalem yok", state: "yok", note: "bu kurda borç alacak yok", action: null, ccy: m.ccy });
+      continue;
+    }
+    if (m.paid) {
+      out.push({ key: m.ccy, label: m.ccy, amount: money(Math.abs(m.net_cents)), who: m.direction === "KZ_TO_AMR" ? "Kanzasset borçluydu" : "rafineri borçluydu", state: "kapandı", note: `ödeme kapandı${m.bank_ref ? ` · banka ref ${m.bank_ref}` : ""}`, action: null, ccy: m.ccy });
+      continue;
+    }
+    if (m.direction === "KZ_TO_AMR") {
+      out.push({ key: m.ccy, label: m.ccy, amount: money(Math.abs(m.net_cents)), who: "Kanzasset borçlu", state: ready ? "sizde" : "karşıda", note: ready ? "ödeme YALNIZ şirket banka hesabından yapılır (K5); ikinci onay ister" : "mutabakattan sonra ödenir", action: ready ? "pay" : null, actionLabel: "Öde (şirket hesabından)", ccy: m.ccy });
+    } else {
+      out.push({ key: m.ccy, label: m.ccy, amount: money(Math.abs(m.net_cents)), who: "rafineri borçlu", state: ready ? "sizde" : "karşıda", note: m.bank_ref ? `rafineri ödeme bildirdi (${m.bank_ref}); para geldiyse onaylayın` : "rafineri ödeyecek; para geldiğinde onaylayın", action: ready ? "pay" : null, actionLabel: "Ödeme alındı", ccy: m.ccy });
+    }
+  }
+  return out;
+}
+
+/** Tek cümlelik özet: kaç bacak açık ve sıradaki iş kimde. */
+export function summary(w: KzSettlement | null): string {
+  if (!w) return "Açık pencere yok. Kesim saatinde rafineri kendiliğinden açar; erken kapatmak için talep edin.";
+  if (w.status === "SETTLED") return "Pencere kapandı: bütün bacaklar sıfırlandı, Mahsuplaşma Ekstresi alındı.";
+  const rec = reconciliation(w);
+  if (rec.state !== "eşit") return `Mutabakat: ${rec.text}.`;
+  const rows = legs(w).filter((l) => l.state === "sizde" || l.state === "karşıda");
+  if (rows.length === 0) return "Bütün bacaklar kapandı, pencere birazdan kapanacak.";
+  const mine = rows.filter((l) => l.state === "sizde");
+  const head = `${rows.length} bacak açık`;
+  return mine.length ? `${head} · sıradaki iş sizde: ${mine[0].label} ${mine[0].amount}` : `${head} · sıradaki iş rafineride: ${rows[0].label} ${rows[0].amount}`;
 }

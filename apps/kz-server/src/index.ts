@@ -556,14 +556,22 @@ app.put<{ Body: Partial<FulfilmentParams> & Approvable }>("/api/fulfilment-param
 
 // ---- K8: mahsuplaşma ----
 app.get("/api/settlements", async () => ({ items: settlement.list(), open: settlement.open() ?? null, record: S.record }));
-app.post<{ Body: { reason?: string; trigger?: string } }>("/api/settlements", async (req, reply) => {
+app.post<{ Body: { reason?: string; trigger?: string; scope?: string[] } }>("/api/settlements", async (req, reply) => {
   try {
-    const w = await settlement.request(req.body?.trigger ?? "REQUEST_KZ", req.body?.reason?.trim());
-    return logged(req, "settlement.request", `mahsuplaşma penceresi istendi${req.body?.reason ? ": " + req.body.reason.trim() : ""}`, w);
+    const scope = req.body?.scope?.length ? req.body.scope : undefined;
+    const w = await settlement.request(req.body?.trigger ?? "REQUEST_KZ", req.body?.reason?.trim(), scope);
+    return logged(req, "settlement.request", `mahsuplaşma penceresi istendi${scope ? ` · kapsam ${scope.join(" + ")}` : ""}${req.body?.reason ? ": " + req.body.reason.trim() : ""}`, w);
   } catch (e) { return reply.code(502).send({ error: (e as Error).message }); }
 });
 app.post<{ Params: { id: string } }>("/api/settlements/:id/reconcile", async (req, reply) => {
   try { return await settlement.reconcile(req.params.id); } catch (e) { return reply.code(502).send({ error: (e as Error).message }); }
+});
+/** Rafinerinin "kasaya koyalım mı" teklifini onaylar; ardından kasa girişi talebi gider. */
+app.post<{ Params: { id: string } }>("/api/settlements/:id/gold/approve", async (req, reply) => {
+  try {
+    const w = await settlement.approveGold(req.params.id);
+    return logged(req, "settlement.gold_approve", `mahsuplaşma ${req.params.id} altın teklifi onaylandı, kasa girişi talebi gönderildi`, w);
+  } catch (e) { return reply.code(400).send({ error: (e as Error).message }); }
 });
 app.post<{ Params: { id: string } }>("/api/settlements/:id/gold-leg", async (req, reply) => {
   try {

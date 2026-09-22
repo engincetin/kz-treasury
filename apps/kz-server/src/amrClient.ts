@@ -74,7 +74,9 @@ export class AmrClient {
   refiningApprove(id: string, quote_id: string) { return this.request<Refining>("POST", `/v1/refining/${encodeURIComponent(id)}/approve`, { quote_id }, { idempotencyKey: `rfn-ap-${id}` }); }
   refiningCancel(id: string, reason: string) { return this.request<Refining>("POST", `/v1/refining/${encodeURIComponent(id)}/cancel`, { reason }, { idempotencyKey: `rfn-cx-${id}` }); }
   /** Mahsuplaşma (12). */
-  settlementOpen(trigger: string, reason?: string) { return this.request<Settlement>("POST", "/v1/settlements", { trigger, reason }, { idempotencyKey: `stl-${trigger}-${Date.now()}` }); }
+  settlementOpen(trigger: string, reason?: string, scope?: string[]) { return this.request<Settlement>("POST", "/v1/settlements", { trigger, reason, scope }, { idempotencyKey: `stl-${trigger}-${Date.now()}` }); }
+  /** Altın teklifini onayla: kasa girişi talebi bundan sonra gönderilir. */
+  settlementApproveGold(id: string) { return this.request<Settlement>("POST", `/v1/settlements/${encodeURIComponent(id)}/gold/approve`, {}); }
   settlementGet(id: string) { return this.request<Settlement>("GET", `/v1/settlements/${encodeURIComponent(id)}`); }
   settlementConfirm(id: string, statement_hash: string, gold_mg: number, money: { ccy: string; cents: number }[]) {
     return this.request<Settlement>("POST", `/v1/settlements/${encodeURIComponent(id)}/confirm`, { statement_hash, gold_mg, money }, { idempotencyKey: `stl-cf-${id}` });

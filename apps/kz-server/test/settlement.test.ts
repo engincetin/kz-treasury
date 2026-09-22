@@ -42,6 +42,13 @@ function setup(record: KzRecord, amrGold: number, amrUsd: number) {
       calls.push({ kind: "confirm", arg: hash });
       return makeSettlement({ gold_mg: amrGold, usd: amrUsd, status: hash === "amr-hash" ? "RECONCILED" : "MISMATCH" });
     },
+    async settlementApproveGold() {
+      calls.push({ kind: "approveGold" });
+      const w = makeSettlement({ gold_mg: amrGold, usd: amrUsd, status: "RECONCILED" });
+      w.gold_leg!.proposed_ts = "2026-09-21T17:01:00.000Z";
+      w.gold_leg!.approved_ts = "2026-09-21T17:02:00.000Z";
+      return w;
+    },
     async settlementPaymentNotice() { calls.push({ kind: "notice" }); return makeSettlement({ gold_mg: amrGold, usd: amrUsd, status: "PAYMENT_PENDING" }); },
     async settlementPaymentReceived() { calls.push({ kind: "received" }); return makeSettlement({ gold_mg: amrGold, usd: amrUsd, status: "SETTLED" }); },
     async vaultIn(qty_mg: number, ref: string): Promise<VaultRequest> {
@@ -140,4 +147,28 @@ test("12 rafineri pencere açtığında olayla haberdar oluruz", async () => {
   const s = setup(r, 0, 0);
   const note = s.desk.onEvent("settlement.requested", { trigger: "REQUEST_AMR", reason: "limit" });
   assert.match(note, /mahsuplaşma talebi/);
+});
+
+test("12 altın bacağı: rafineri teklif ettiyse onaylanmadan kasa girişi talebi gitmez", async () => {
+  const record = emptyRecord(20_000_000);
+  applyFill(record, "BUY", 7_000_000, "USD", 994_000_00, { deliver: false });
+  const s = setup(record, 7_000_000, -994_000_00);
+
+  // rafineri teklifi geldi ama onaylanmadı: talep gönderilemez
+  const w = await s.desk.request("CUTOFF");
+  w.gold_leg = { direction: "VAULT_IN", qty_mg: 7_000_000, done: false, proposed_ts: "2026-09-21T17:01:00.000Z" };
+  await assert.rejects(() => s.desk.goldLeg(w.settlement_id), /önce onaylanmalı/);
+  assert.equal(s.calls.filter((c) => c.kind === "vaultIn").length, 0, "onaysız kasa girişi talebi yok");
+
+  // onaylanınca talep gider
+  await s.desk.approveGold(w.settlement_id);
+  assert.equal(s.calls.filter((c) => c.kind === "approveGold").length, 1);
+  assert.equal(s.calls.filter((c) => c.kind === "vaultIn").length, 1, "onaydan sonra kasa girişi talebi gider");
+});
+
+test("12 kapsam: talep edilen bacaklar rafineriye iletilir", async () => {
+  const record = emptyRecord(20_000_000);
+  const s = setup(record, 0, -100_00);
+  await s.desk.request("REQUEST_KZ", "yalnız USD", ["USD"]);
+  assert.equal(s.calls.filter((c) => c.kind === "open").length, 1);
 });

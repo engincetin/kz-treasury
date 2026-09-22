@@ -289,10 +289,16 @@ const SCENARIOS = {
     await sleep(2000);
     const k1 = await kz("/api/settlements");
     if (k1.open) ok(`Kanzasset mutabakatı yaptı: ${k1.open.status}${k1.open.diffs?.length ? ` · ${k1.open.diffs.length} fark` : " · iki ekstre birebir eşit"}`);
-    if (w.gold_leg.direction !== "NONE") {
-      act("altın bacağı: Kanzasset kasa talimatı gönderiyor");
+    if (w.gold_leg.direction === "VAULT_IN") {
+      // rafineri gram borçlu: önce "kasaya koyalım mı" teklifi, Kanzasset onaylayınca kasa girişi talebi gider
+      act("altın bacağı: rafineri kasaya koymayı teklif etti, Kanzasset onaylıyor");
+      await kz(`/api/settlements/${w.settlement_id}/gold/approve`, { body: {} });
+      await acceptVault("mahsuplaşma altın bacağı (fiş kesilince mint)");
+    } else if (w.gold_leg.direction === "VAULT_OUT") {
+      // Kanzasset gram borçlu: önce token yakılır, sonra kasa çıkışı talebi gider
+      act("altın bacağı: Kanzasset önce token yakıyor, sonra kasa çıkışı talebi gönderiyor");
       await kz(`/api/settlements/${w.settlement_id}/gold-leg`, { body: {} });
-      await acceptVault("mahsuplaşma altın bacağı");
+      await acceptVault("mahsuplaşma altın bacağı (burn önce, talep sonra)");
     }
     for (const m of w.money_leg.filter((x) => x.net_cents !== 0)) {
       act(`para bacağı ${m.ccy}: ${m.direction === "KZ_TO_AMR" ? "Kanzasset şirket hesabından öder" : "rafineri öder"}`);
@@ -304,6 +310,26 @@ const SCENARIOS = {
     const f = fin.items[0];
     ok(`pencere ${f.status}${f.doc_id ? ` · Mahsuplaşma Ekstresi ${f.doc_id}` : ""}`);
     await snapshot("limit sayaçları sıfırlandı");
+
+    title("S9c · Gün içi tek bacak: yalnız USD mahsuplaşması");
+    act("önce küçük bir stoktan alış: hem gram hem USD borcu birikiyor");
+    const small = await kz("/api/orders", { body: { side: "BUY", qty_mg: 25_000, ccy: "USD" } });
+    const st0 = await status();
+    say(`emir ${small.id} · şimdi T ${g(st0.record.current_account.gold_mg)} g · USD ${money(st0.record.current_account.money.find((m) => m.ccy === "USD").cents)}`);
+    act("Kanzasset yalnız USD bacağı için pencere açıyor (altın ve diğer kurlar dokunulmaz)");
+    const one = await kz("/api/settlements", { body: { trigger: "REQUEST_KZ", reason: "demo: yalnız USD", scope: ["USD"] } });
+    say(`kapsam ${one.scope ? one.scope.join(" + ") : "USD"} · bacak sayısı ${one.money_leg.length}${one.gold_leg && one.gold_leg.direction !== "NONE" ? " + altın" : " (altın kapsam dışı)"}`);
+    await sleep(1500);
+    const oneAmr = (await amr("/admin/settlements")).items[0];
+    ok(`rafineri penceresi ${oneAmr.settlement_id} · kapsam ${(oneAmr.scope ?? []).join(" + ")} · ${oneAmr.status}`);
+    for (const m of oneAmr.money_leg.filter((x) => x.net_cents !== 0)) {
+      try { await kzApproved(`/api/settlements/${oneAmr.settlement_id}/pay`, { ccy: m.ccy }); ok(`${m.ccy} bacağı kapandı`); }
+      catch (e) { warn(`${m.ccy}: ${e.message}`); }
+    }
+    await sleep(1200);
+    const oneFin = (await amr("/admin/settlements")).items[0];
+    const st1 = await status();
+    ok(`tek bacaklı pencere ${oneFin.status} · USD ${money(st1.record.current_account.money.find((m) => m.ccy === "USD").cents)} · altın T ${g(st1.record.current_account.gold_mg)} g (dokunulmadı)`);
 
     title("S9b · Eşleşme uyuşmazlığı ve çözümü");
     act("KZ kaydı bilerek 1 g kaydırılıyor (demo ucu)");
