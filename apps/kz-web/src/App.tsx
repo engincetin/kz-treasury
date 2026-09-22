@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink, Route, Routes } from "react-router-dom";
 import { api, ageSec, currentUser, fmtG, fmtMoney, KZ_USERS, setCurrentUser, useLive, type Notice, type Status } from "./api.ts";
+import { Icon, useSidebar, useTheme } from "./ui.tsx";
 import { K1Connection } from "./pages/K1Connection.tsx";
 import { Placeholder } from "./pages/Placeholder.tsx";
 import { K2Accounts } from "./pages/K2Accounts.tsx";
@@ -26,24 +27,27 @@ const SCREENS = [
 
 export function App() {
   const live = useLive();
+  const side = useSidebar();
   return (
-    <div className="layout">
-      <div className="brand">
-        <img src="/kanzasset-mark.png" alt="Kanzasset" />
-        <div>
-          <div className="bt">KANZASSET<br />FZCO</div>
-          <div className="bs">Hazine → Rafineri</div>
+    <div className={`layout${side.collapsed ? " collapsed" : ""}${side.mobileOpen ? " nav-open" : ""}`}>
+      {side.mobileOpen && <div className="nav-backdrop" onClick={side.closeMobile} />}
+      <aside className="side">
+        <button className="side-toggle" onClick={side.toggle} title={side.collapsed ? "Menüyü genişlet" : "Menüyü daralt"} aria-label="Menüyü daralt">{Icon.chevronLeft}</button>
+        <div className="brand">
+          <img src="/kanzasset-mark.png" alt="Kanzasset" />
+          <span className="bt">Kanzasset</span>
+          <span className="badge">BO</span>
         </div>
-      </div>
-      <nav className="nav">
-        {SCREENS.map((s) => (
-          <NavLink key={s.code} to={s.path} end={s.path === "/"}>
-            <span className="code">{s.code}</span><span>{s.title}</span>
-            {s.sprint > 1 && !(s as any).done && <span className="sprint">Sprint {s.sprint}</span>}
-          </NavLink>
-        ))}
-      </nav>
-      <TopBar s={live.status} sse={live.connected} refresh={live.refresh} />
+        <nav className="nav" onClick={() => side.isMobile && side.closeMobile()}>
+          {SCREENS.map((s) => (
+            <NavLink key={s.code} to={s.path} end={s.path === "/"} title={s.title}>
+              <span className="code">{s.code}</span><span className="label">{s.title}</span>
+              {s.sprint > 1 && !(s as any).done && <span className="sprint">Sprint {s.sprint}</span>}
+            </NavLink>
+          ))}
+        </nav>
+      </aside>
+      <TopBar s={live.status} sse={live.connected} refresh={live.refresh} onMenu={side.openMobile} />
       <main className="main">
         <Routes>
           <Route path="/" element={<K1Connection live={live} />} />
@@ -61,7 +65,7 @@ export function App() {
   );
 }
 
-function TopBar({ s, sse, refresh }: { s: Status | null; sse: boolean; refresh: () => void }) {
+function TopBar({ s, sse, refresh, onMenu }: { s: Status | null; sse: boolean; refresh: () => void; onMenu: () => void }) {
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<Notice[]>([]);
   const [, tick] = useState(0);
@@ -71,6 +75,7 @@ function TopBar({ s, sse, refresh }: { s: Status | null; sse: boolean; refresh: 
   const q = s?.quotes.find((x) => x.ccy === "USD");
   return (
     <header className="topbar">
+      <button className="hamburger" onClick={onMenu} title="Menü" aria-label="Menü">{Icon.menu}</button>
       <div className="chips">
       <div className="chip">
         <span className="l">Müşteri işlemleri</span>
@@ -101,7 +106,7 @@ function TopBar({ s, sse, refresh }: { s: Status | null; sse: boolean; refresh: 
         <span className="s">{s?.record.current_account.money.map((m) => `${m.ccy} ${fmtMoney(m.cents)}`).join(" · ")}</span>
       </div>
       </div>
-      <button className="bell" onClick={() => setOpen((v) => !v)}>🔔 Bildirimler {s && s.unread > 0 && <span className="n">{s.unread}</span>}{s && (s.unanswered + s.lateFills + s.awaitingDelivery + s.treasury.pending) > 0 && <span className="n" style={{ background: "var(--warn)" }} title="cevapsız / geç fill · teslim bekleyen · onay bekleyen">{s.unanswered + s.lateFills + s.awaitingDelivery + s.treasury.pending}</span>}</button>
+      <button className="bell" onClick={() => setOpen((v) => !v)}>🔔 <span className="label">Bildirimler</span> {s && s.unread > 0 && <span className="n">{s.unread}</span>}{s && (s.unanswered + s.lateFills + s.awaitingDelivery + s.treasury.pending) > 0 && <span className="n" style={{ background: "var(--warn)" }} title="cevapsız / geç fill · teslim bekleyen · onay bekleyen">{s.unanswered + s.lateFills + s.awaitingDelivery + s.treasury.pending}</span>}</button>
       {open && (
         <div className="drawer">
           {items.length === 0 && <div className="item">Bildirim yok</div>}
@@ -114,7 +119,8 @@ function TopBar({ s, sse, refresh }: { s: Status | null; sse: boolean; refresh: 
         </div>
       )}
       <UserPicker />
-      <span className="small" style={{ alignSelf: "center" }}>canlı akış {sse ? "açık" : "kapalı"}</span>
+      <ThemeButton />
+      <span className="small sse" style={{ alignSelf: "center" }}>canlı akış {sse ? "açık" : "kapalı"}</span>
     </header>
   );
 }
@@ -137,5 +143,16 @@ function UserPicker() {
       </select>
       <span className="s">aksiyonlar bu adla günlüğe yazılır</span>
     </label>
+  );
+}
+
+/** Tema düğmesi: açık → koyu → sistem. Seçim tarayıcıda saklanır. */
+function ThemeButton() {
+  const theme = useTheme();
+  const label = theme.mode === "light" ? "Açık tema" : theme.mode === "dark" ? "Koyu tema" : "Sistem teması";
+  return (
+    <button className="theme-btn" onClick={theme.cycle} title={`${label} (değiştirmek için tıklayın)`} aria-label={label}>
+      {theme.mode === "light" ? Icon.sun : theme.mode === "dark" ? Icon.moon : Icon.auto}
+    </button>
   );
 }

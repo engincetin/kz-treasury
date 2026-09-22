@@ -78,7 +78,7 @@ export function K3Orders({ live }: { live: Live }) {
           <tbody>
             {(data?.items ?? []).length === 0 && <tr><td colSpan={13} className="small">Emir yok</td></tr>}
             {data?.items.map((o) => (
-              <tr key={o.id} onClick={() => setSel(o)} style={{ cursor: "pointer", background: sel?.id === o.id ? "#f4f5f7" : undefined }}>
+              <tr key={o.id} onClick={() => setSel(o)} style={{ cursor: "pointer", background: sel?.id === o.id ? "var(--sel)" : undefined }}>
                 <td className="mono">{fmtTime(o.ts)}</td>
                 <td className="mono">{o.id}</td>
                 <td>{o.side === "BUY" ? <span className="pill ok">ALIŞ</span> : <span className="pill warn">SATIŞ</span>}</td>
