@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, fmtDT, fmtG, fmtMoney, TREASURY_STATUS_TR, type StockParams, type TreasuryRequest, type useLive } from "../api.ts";
+import { Pager, usePager } from "../components/Pager.tsx";
 
 type Live = ReturnType<typeof useLive>;
 
@@ -35,6 +36,7 @@ export function K5Treasury({ live }: { live: Live }) {
   const px = form.side === "BUY" ? q?.refineryAsk : q?.refineryBid;
   const amount = px ? Math.round((Math.round(Number(px) * 100) * qtyMg) / 1000) : 0;
 
+  const pItems = usePager(data?.items ?? [], 20);
   return (
     <div>
       <span className="tag">K5</span>
@@ -135,10 +137,10 @@ export function K5Treasury({ live }: { live: Live }) {
       <section className="card">
         <h2>Talepler</h2>
         <table>
-          <thead><tr><th>Zaman</th><th>Talep</th><th>Yön</th><th className="num">Gram</th><th>Durum</th><th className="num">Fill</th><th>Kasa talimatı</th><th>Hedef K</th><th></th></tr></thead>
+          <thead><tr><th>Zaman</th><th>Talep</th><th>Yön</th><th className="num">Gram</th><th>Durum</th><th className="num">Gerçekleşme</th><th>Kasa talimatı</th><th>Hedef K</th><th></th></tr></thead>
           <tbody>
             {(data?.items.length ?? 0) === 0 && <tr><td colSpan={9} className="small">Talep yok</td></tr>}
-            {data?.items.map((r) => (
+            {pItems.slice.map((r) => (
               <tr key={r.id}>
                 <td className="mono">{fmtDT(r.created_ts)}</td>
                 <td className="mono small">{r.id}</td>
@@ -153,6 +155,7 @@ export function K5Treasury({ live }: { live: Live }) {
             ))}
           </tbody>
         </table>
+        <Pager p={pItems} label="Talepler" />
       </section>
 
       {open && (

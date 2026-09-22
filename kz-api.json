@@ -1682,9 +1682,54 @@
         }
       }
     },
+    "/api/documents": {
+      "get": {
+        "summary": "K12 belgelerin Kanzasset kopyası (künye listesi)",
+        "description": "rafineri belgeleri olayla gelen numaradan çekilir, sha256 özeti yeniden hesaplanır (hash_ok), anahtar verilmişse imza doğrulanır (signature_ok) ve saklanır.",
+        "responses": {
+          "200": {
+            "description": "{ count, signature_checked, items[] }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/documents/{id}": {
       "get": {
-        "summary": "Rafineri belgesini getir (imzalı JSON)",
+        "summary": "K12 belgeyi kendi kaydımızdan getir (yoksa rafineriden çekip saklar)",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ meta (hash_ok, signature_ok, source dahil), content }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/{id}/pdf": {
+      "get": {
+        "summary": "K12 belgenin PDF'i (rafineriden imzalı istekle çekilir, aynen aktarılır)",
         "parameters": [
           {
             "name": "id",
@@ -1698,6 +1743,23 @@
         "responses": {
           "200": {
             "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/documents/sync": {
+      "post": {
+        "summary": "K12 geriye dönük eşitleme: emir, kasa, teslimat, rafinasyon ve mahsuplaşma kayıtlarındaki belge numaralarını tara, eksikleri çek",
+        "responses": {
+          "200": {
+            "description": "{ fetched, failed[], count }",
             "content": {
               "application/json": {
                 "schema": {

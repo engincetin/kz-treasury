@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, fmtDT, fmtG, fmtMoney, FUL_STATUS_TR, type FulfilmentView, type KzRefining, type useLive } from "../api.ts";
+import { Pager, usePager } from "../components/Pager.tsx";
 
 type Live = ReturnType<typeof useLive>;
 
@@ -31,6 +32,7 @@ export function K7Refining({ live }: { live: Live }) {
   const totalMg = lines.reduce((a, [id, q]) => a + q * (cat?.items.find((i) => i.item_id === id)?.weight_mg ?? 0), 0);
   const tariff = lines.reduce((a, [id, q]) => a + q * (cat?.items.find((i) => i.item_id === id)?.unit_price_cents ?? 0), 0);
 
+  const pItems = usePager(v?.refinings ?? [], 20);
   return (
     <div>
       <span className="tag">K7</span>
@@ -90,7 +92,7 @@ export function K7Refining({ live }: { live: Live }) {
           <thead><tr><th>Zaman</th><th>Talep</th><th>Kalemler</th><th className="num">Saf gram</th><th>Durum</th><th>Teklif</th><th className="num">Müşteri fiyatı</th><th>Burn</th><th>Aksiyon</th></tr></thead>
           <tbody>
             {(v?.refinings.length ?? 0) === 0 && <tr><td colSpan={9} className="small">Rafinasyon talebi yok</td></tr>}
-            {v?.refinings.map((r) => (
+            {pItems.slice.map((r) => (
               <tr key={r.id}>
                 <td className="mono">{fmtDT(r.created_ts)}</td>
                 <td className="mono small">{r.id}</td>
@@ -111,6 +113,7 @@ export function K7Refining({ live }: { live: Live }) {
             ))}
           </tbody>
         </table>
+        <Pager p={pItems} label="Talepler" />
       </section>
 
       {sel && (

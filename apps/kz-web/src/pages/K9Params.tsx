@@ -4,9 +4,9 @@ import { api, currentUser, needsApproval, type ApprovalRequest, type AuditEntry,
 type Live = ReturnType<typeof useLive>;
 
 /**
- * K9 Parametreler.
- * İş kurallarının değerleri: stok bandı ve hedef, mint politikası, kasaya konuluyor tavanı,
- * onay matrisi, slippage, emir zaman sınırı, fiyatlama, burn anı.
+ * K9 Ayarlar: rafineri tarafındaki R10'un karşılığı.
+ * Bağlantı (rafineri soketi ve REST adresi) burada görünür; iş kurallarının değerleri: stok bandı ve hedef, mint politikası, kasaya konuluyor tavanı,
+ * onay matrisi, kayma payı, emir zaman sınırı, fiyatlama, burn anı.
  * Değişiklik ikinci onay ister ve günlüğe yazılır. Kural sunucudadır: istek 202 ile onay
  * numarası döner, onay farklı bir kullanıcıdan gelmezse değişiklik uygulanmaz.
  */
@@ -75,8 +75,8 @@ export function K9Params({ live }: { live: Live }) {
   return (
     <div>
       <span className="tag">K9</span>
-      <h1>Parametreler</h1>
-      <p className="sub">İş kuralları koda gömülü değildir, buradan girilir. Stok bandı büyük alış ve satışı tetikler; envanter hedefi yalnız hazine alım satımıyla değişir. Onay matrisi hazine emirlerinde kaç onay gerektiğini belirler. Her değişiklik ikinci onay ister ve günlüğe yazılır.</p>
+      <h1>Ayarlar</h1>
+      <p className="sub">Bağlantı, iş kuralları ve günlükler tek yerde. İş kuralları koda gömülü değildir, buradan girilir. Stok bandı büyük alış ve satışı tetikler; envanter hedefi yalnız hazine alım satımıyla değişir. Onay matrisi hazine emirlerinde kaç onay gerektiğini belirler. Her değişiklik ikinci onay ister ve günlüğe yazılır.</p>
 
       {msg && <div className="note" style={{ marginBottom: 12 }}>{msg}</div>}
 
@@ -108,6 +108,25 @@ export function K9Params({ live }: { live: Live }) {
           </table>
         </section>
       )}
+
+      <section className="card" style={{ marginBottom: 14 }}>
+        <h2>Bağlantı (rafineri)</h2>
+        <div className="grid c2">
+          <div className="kv">
+            <span className="k">Fiyat soketi</span><span className="mono small">{s?.socket.url ?? "…"}</span>
+            <span className="k">Durum</span>
+            <span className="status"><span className={`dot ${s?.socket.connection === "SUBSCRIBED" ? (s.socket.stale ? "warn" : "ok") : s?.socket.connection === "DISCONNECTED" ? "bad" : "warn"}`} />{s?.socket.connection === "SUBSCRIBED" ? (s.socket.stale ? "Abone, fiyat bayat" : "Abone, fiyat akıyor") : s?.socket.connection === "AUTHENTICATING" ? "Kimlik doğrulanıyor" : s?.socket.connection === "CONNECTING" ? `Bağlanıyor${s.socket.reconnectAttempt ? ` (deneme ${s.socket.reconnectAttempt})` : ""}` : "Bağlı değil"}</span>
+            <span className="k">Son mesaj</span><span className="mono small">{s?.socket.lastMsgTs ? new Date(s.socket.lastMsgTs).toLocaleTimeString("tr-TR") : "yok"} · sıra {s?.socket.seq ?? 0} · atlanan {s?.socket.gaps ?? 0}</span>
+            {s?.socket.lastError && (<><span className="k">Son hata</span><span className="small">{s.socket.lastError}</span></>)}
+          </div>
+          <div className="kv">
+            <span className="k">REST adresi</span><span className="mono small">{s?.rest.url ?? "…"}</span>
+            <span className="k">Gelen olaylar</span><span className="mono small">{s?.rest.events_received ?? 0} · son {s?.rest.last_event_ts ? new Date(s.rest.last_event_ts).toLocaleTimeString("tr-TR") : "yok"}</span>
+            <span className="k">Yeniden bağlanma</span><span className="small">kopunca kendiliğinden, artan bekleme ile; elle müdahale gerekmez</span>
+          </div>
+        </div>
+        <p className="small" style={{ marginTop: 10 }}>Adres ve kimlik bilgileri sunucu ortam değişkenleridir (AMR_WS_URL, AMR_HTTP_URL, KZ_API_KEY, KZ_API_SECRET); çalışırken değişmez. Soket kopuk, fiyat bayat ya da rafineri yayını durduysa müşteri işlemleri kendiliğinden durur; durdur / başlat Fiyat ekranındadır.</p>
+      </section>
 
       <div className="grid c2" style={{ marginBottom: 14 }}>
         <section className="card">
@@ -180,7 +199,7 @@ export function K9Params({ live }: { live: Live }) {
         <section className="card">
           <h2>Emir parametreleri</h2>
           <div className="kv" style={{ gridTemplateColumns: "1fr 1fr" }}>
-            <label className="k" style={{ alignSelf: "center" }}>Slippage toleransı (bps)</label>
+            <label className="k" style={{ alignSelf: "center" }}>Kayma payı (bps)</label>
             <input className="mono" value={String(orderP.slippageBps)} onChange={(e) => setOrderP({ ...orderP, slippageBps: Number(e.target.value) || 0 })} />
             <label className="k" style={{ alignSelf: "center" }}>Emir zaman sınırı (ms)</label>
             <input className="mono" value={String(orderP.timeLimitMs)} onChange={(e) => setOrderP({ ...orderP, timeLimitMs: Number(e.target.value) || 0 })} />

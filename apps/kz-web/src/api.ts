@@ -124,7 +124,10 @@ export interface Status {
   ts: string;
 }
 export interface EventLog { event_id: string; type: string; ts: string; received_ts: string; seq?: number; summary: string }
-export interface Doc { meta: { doc_id: string; type: string; related_id: string; hash: string; signature: string; created_ts: string; sent_ts?: string }; content: Record<string, unknown> }
+export interface Doc { meta: { doc_id: string; type: string; related_id: string; hash: string; signature: string; created_ts: string; sent_ts?: string; hash_ok?: boolean; signature_ok?: boolean | null }; content: Record<string, unknown> }
+/** K12: belgenin Kanzasset kopyasının künyesi (içerik ayrı çekilir). */
+export interface KzDocumentRow { doc_id: string; type: string; related_id: string; hash: string; signature: string; created_ts: string; received_ts: string; source: string; hash_ok: boolean; signature_ok: boolean | null }
+export const DOC_TYPE_TR: Record<string, string> = { ALLOCATION_CERTIFICATE: "Tahsis Belgesi", VAULT_IN_SLIP: "Kasa Giriş Fişi", VAULT_OUT_SLIP: "Kasa Çıkış Fişi", LOGISTICS_QUOTE: "Lojistik Teklifi", REFINING_QUOTE: "Rafinasyon Teklifi", SHIPPING_SLIP: "Sevkiyat Fişi", DELIVERY_RECORD: "Teslimat Kaydı", VAULT_STATEMENT: "Günlük Kasa Ekstresi", CURRENT_ACCOUNT_STATEMENT: "Cari Hesap Ekstresi", SETTLEMENT_STATEMENT: "Mahsuplaşma Ekstresi" };
 
 /** Kritik uçlarda ikinci onay: ilk istekte boş, onayda numara ve onaylayan. */
 export interface Approval { approval_id?: number; approver?: string }
@@ -149,6 +152,9 @@ export const api = {
     req<{ record: KzRecord } | NeedsApproval>("/api/record/resolve", { method: "POST", body: JSON.stringify({ explanation, ...(approval ?? {}) }) }),
   events: () => req<EventLog[]>("/api/events"),
   document: (id: string) => req<Doc>(`/api/documents/${encodeURIComponent(id)}`),
+  // K12 belgeler: kendi kopyamız
+  documents: (q: { type?: string; text?: string } = {}) => req<{ count: number; signature_checked: boolean; items: KzDocumentRow[] }>(`/api/documents?${new URLSearchParams(Object.fromEntries(Object.entries({ type: q.type, q: q.text }).filter(([, v]) => v)) as Record<string, string>)}`).then((r) => r.items),
+  syncDocuments: () => req<{ fetched: number; failed: string[]; count: number }>("/api/documents/sync", { method: "POST", body: "{}" }),
   // K4 kasa talimatları
   vault: (limit = 200) => req<VaultView>(`/api/vault?limit=${limit}`),
   vaultManual: (type: "IN" | "OUT", qty_mg: number, reason: string) => req<VaultInstruction>("/api/vault", { method: "POST", body: JSON.stringify({ type, qty_mg, reason }) }),

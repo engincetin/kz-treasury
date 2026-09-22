@@ -30,6 +30,7 @@ import { docsRoutes } from "./docs.ts";
 import { AuditDesk, ApprovalError, SECOND_APPROVAL, type AuditEntry, type ApprovalRequest } from "./audit.ts";
 import { DEFAULT_LOG_PARAMS, RequestLog, shouldLogIncoming, type RequestLogParams, type RequestLogRow } from "./reqlog.ts";
 import { queryLogs } from "./logs.ts";
+import { DocumentDesk, docIdsIn, type KzDocument } from "./documents.ts";
 import type { Catalog } from "@amr/contract";
 
 const PORT = Number(process.env.PORT ?? 5000);
@@ -39,6 +40,8 @@ const API_KEY = process.env.KZ_API_KEY ?? "kz-dev-key";
 const API_SECRET = process.env.KZ_API_SECRET ?? "kz-dev-secret";
 const DATA_DIR = process.env.KZ_DATA_DIR ?? resolve(import.meta.dirname, "../data");
 const OPENING_MG = Number(process.env.KZ_OPENING_MG ?? 0);
+/** Rafinerinin belge imza anahtarı (doc.sign_key). Verilirse belge imzaları da doğrulanır; verilmezse yalnız özet. */
+const AMR_DOC_KEY = process.env.AMR_DOC_KEY || null;
 
 const bus = new EventEmitter();
 bus.setMaxListeners(100);
@@ -54,6 +57,7 @@ interface State {
   settlements: KzSettlement[];
   audit: AuditEntry[]; auditId: number; approvals: ApprovalRequest[]; approvalId: number;
   requests: RequestLogRow[]; requestId: number; log: RequestLogParams;
+  documents: KzDocument[];
 }
 const store = new JsonStore<State>(resolve(DATA_DIR, "kz-state.json"), () => ({
   record: emptyRecord(OPENING_MG), orders: [], notices: [], noticeId: 0, events: [], pricing: { ...DEFAULT_PRICING }, orderParams: { ...DEFAULT_ORDER_PARAMS }, market: { manualStop: false, manualReason: null },
@@ -61,6 +65,7 @@ const store = new JsonStore<State>(resolve(DATA_DIR, "kz-state.json"), () => ({
   deliveries: [], refinings: [], catalog: null, fulfilment: { ...DEFAULT_FULFILMENT }, settlements: [],
   audit: [], auditId: 0, approvals: [], approvalId: 0,
   requests: [], requestId: 0, log: { ...DEFAULT_LOG_PARAMS },
+  documents: [],
 }));
 const S = store.data;
 const ticks: { seq: number; ts: string; tradable: boolean; prices: unknown }[] = [];
@@ -92,6 +97,9 @@ const changed = () => { store.save(); bus.emit("event", { kind: "status", status
 // İstek günlüğü (VARA kanıtı): rafineriye giden ve rafineriden gelen her çağrı.
 const reqLog = new RequestLog(S, () => store.save());
 amr.onCall = (c) => reqLog.outgoing(c.method, c.path, c.status, c.durationMs, c.body, c.error);
+
+// Belgeler (K12): rafinerinin ürettiği belgelerin Kanzasset kopyası, özet ve imza doğrulamasıyla.
+const documents = new DocumentDesk(S, { amr, docKey: AMR_DOC_KEY, save: () => store.save(), notify });
 
 // Denetim günlüğü ve ikinci onay (K9). Aktör X-User başlığından gelir.
 const auditDesk = new AuditDesk(S, { save: () => store.save(), notify });
@@ -583,8 +591,36 @@ if (process.env.KZ_DEMO !== "0") {
 app.get<{ Querystring: { from?: string; to?: string } }>("/api/record/statement", async (req, reply) => {
   try { return await amr.statement(req.query.from, req.query.to); } catch (e) { return reply.code(502).send({ error: (e as Error).message }); }
 });
+// ---- belgeler (K12): kendi kopyamız ----
+app.get<{ Querystring: { type?: string; q?: string; limit?: string } }>("/api/documents", async (req) => ({
+  count: documents.count(),
+  signature_checked: AMR_DOC_KEY !== null,
+  items: documents.list({ type: req.query.type, text: req.query.q, limit: Number(req.query.limit ?? 500) }),
+}));
+/** Belgeyi kendi kaydımızdan verir; yoksa rafineriden çeker, doğrular ve saklar. */
 app.get<{ Params: { id: string } }>("/api/documents/:id", async (req, reply) => {
-  try { return await amr.document(req.params.id); } catch (e) { return reply.code(502).send({ error: (e as Error).message }); }
+  try {
+    const row = await documents.fetch(req.params.id, "ekrandan istendi");
+    if (!row) return reply.code(404).send({ error: "NOT_FOUND" });
+    const { content, ...meta } = row;
+    return { meta, content };
+  } catch (e) { return reply.code(502).send({ error: (e as Error).message }); }
+});
+/** PDF rafineride üretilir; imzalı istekle çekilip aynen aktarılır (tarayıcı HMAC imzalayamaz). */
+app.get<{ Params: { id: string } }>("/api/documents/:id/pdf", async (req, reply) => {
+  const path = `/v1/documents/${encodeURIComponent(req.params.id)}/pdf`;
+  try {
+    const res = await fetch(amr.baseUrl + path, { headers: amr.headers("GET", path) });
+    if (!res.ok) return reply.code(502).send({ error: `rafineri HTTP ${res.status}` });
+    reply.header("content-type", "application/pdf").header("content-disposition", `inline; filename="${req.params.id}.pdf"`);
+    return reply.send(Buffer.from(await res.arrayBuffer()));
+  } catch (e) { return reply.code(502).send({ error: (e as Error).message }); }
+});
+/** Geriye dönük eşitleme: emirler, kasa talimatları, teslimat / rafinasyon ve mahsuplaşma kayıtlarındaki belge numaraları taranır. */
+app.post("/api/documents/sync", async (req) => {
+  const known = docIdsIn({ orders: S.orders, vault: S.vault, deliveries: S.deliveries, refinings: S.refinings, settlements: S.settlements, events: S.events });
+  const r = await documents.sync(known);
+  return logged(req, "documents.sync", `${r.fetched} belge çekildi, ${r.failed.length} çekilemedi`, { ...r, count: documents.count() });
 });
 
 // ---- olaylar (webhook, AMR → KZ) ----
@@ -602,6 +638,8 @@ app.post("/api/events", async (req, reply) => {
   const ev = req.body as EventEnvelope;
   if (S.events.some((e) => e.event_id === ev.event_id)) return { ok: true, duplicate: true };
   const summary = await handleEvent(ev);
+  // olayla gelen belge numaraları: belgeyi çek, doğrula, kendi kaydımıza yaz (hata olayı durdurmaz)
+  await documents.collect(ev);
   S.events.unshift({ event_id: ev.event_id, type: ev.type, ts: ev.ts, received_ts: new Date().toISOString(), seq: ev.seq, summary });
   if (S.events.length > 500) S.events.pop();
   changed();

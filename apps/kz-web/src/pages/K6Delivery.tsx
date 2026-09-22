@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { needsApproval, api, fmtDT, fmtG, fmtMoney, FUL_STATUS_TR, type FulfilmentView, type KzDelivery, type useLive } from "../api.ts";
+import { Pager, usePager } from "../components/Pager.tsx";
 
 type Live = ReturnType<typeof useLive>;
 
@@ -32,6 +33,7 @@ export function K6Delivery({ live }: { live: Live }) {
 
   const s = live.status;
 
+  const pItems = usePager(v?.deliveries ?? [], 20);
   return (
     <div>
       <span className="tag">K6</span>
@@ -86,7 +88,7 @@ export function K6Delivery({ live }: { live: Live }) {
           <thead><tr><th>Zaman</th><th>Talep</th><th className="num">Gram</th><th>Durum</th><th>Lojistik teklifi</th><th>Takip</th><th>Burn</th><th>Aksiyon</th></tr></thead>
           <tbody>
             {(v?.deliveries.length ?? 0) === 0 && <tr><td colSpan={8} className="small">Teslimat talebi yok</td></tr>}
-            {v?.deliveries.map((d) => (
+            {pItems.slice.map((d) => (
               <tr key={d.id}>
                 <td className="mono">{fmtDT(d.created_ts)}</td>
                 <td className="mono small">{d.id}<br /><span className="small">adres {d.address_ref}</span></td>
@@ -106,6 +108,7 @@ export function K6Delivery({ live }: { live: Live }) {
             ))}
           </tbody>
         </table>
+        <Pager p={pItems} label="Talepler" />
       </section>
 
       {sel && (

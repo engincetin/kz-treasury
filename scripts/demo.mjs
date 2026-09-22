@@ -113,7 +113,7 @@ const SCENARIOS = {
     say(`açılış devri kasada duruyor; hazine stoku ve envanter hedefi eşit`);
     await snapshot("açılış");
     if (s.record.stock.s_mg !== s.record.stock.k_mg) warn("S ile K eşit değil: açılış devirleri (VAULT_OPENING_MG / KZ_OPENING_MG) aynı olmalı");
-    // 15 kg büyük alışta T geçici olarak 15 kg'ı aşar; cari hesap limiti buna göre açılır (Parametreler)
+    // 15 kg büyük alışta T geçici olarak 15 kg'ı aşar; cari hesap limiti buna göre açılır (K9 Ayarlar)
     act("demo için cari hesap altın limiti 25.000 g yapılıyor (büyük alışta T geçici olarak 15 kg'ı aşar)");
     await setSetting({ "limit.current_account_gold_mg": String(25_000_000) });
     ok("limit ayarlandı; parametre değişikliği ikinci onaydan geçti (Yönetici ister, Masa onaylar)");

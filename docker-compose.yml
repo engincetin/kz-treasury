@@ -73,6 +73,8 @@ services:
         condition: service_healthy
     environment:
       PORT: "5000"
+      # rafinerinin belge imza anahtarı (AMR doc.sign_key varsayılanı): K12 belgelerde imza da doğrulanır
+      AMR_DOC_KEY: "amr-doc-dev-key"
       AMR_WS_URL: "ws://amr:4000/v1/prices"
       AMR_HTTP_URL: "http://amr:4000"
       KZ_API_KEY: "kz-dev-key"

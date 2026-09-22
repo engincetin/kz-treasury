@@ -23,8 +23,8 @@ export function K2Accounts({ live }: { live: Live }) {
   return (
     <div>
       <span className="tag">K2</span>
-      <h1>Rafineri hesapları</h1>
-      <p className="sub">Rafinerinin Kanzasset adına tuttuğu iki hesabın Kanzasset'teki karşılığı (KZ kaydı) ve rafineriden gelen bakiye bilgisiyle eşleşmesi. Kural: her harekette birebir eşit olmalı. Eşit değilse hareket geçerli kalır, hesap RECONCILE olur, mint ve kasa çıkışı talebi bloke edilir. seq atlarsa anlık fotoğraf istenir.</p>
+      <h1>Hesaplar</h1>
+      <p className="sub">Rafinerinin Kanzasset adına tuttuğu iki hesabın Kanzasset'teki karşılığı (KZ kaydı) ve rafineriden gelen bakiye bilgisiyle eşleşmesi. Kural: her harekette birebir eşit olmalı. Eşit değilse hareket geçerli kalır, hesap RECONCILE olur, mint ve kasa çıkışı talebi bloke edilir. Sıra numarası atlarsa anlık fotoğraf istenir.</p>
 
       <div className="grid c3" style={{ marginBottom: 14 }}>
         <div className="card">

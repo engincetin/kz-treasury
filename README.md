@@ -66,6 +66,7 @@ Docker olmadan, sunum için üç komut: `docs/DEMO.md` → "Sabah başlatma".
 | `KZ_API_KEY` / `KZ_API_SECRET` | `kz-dev-key` / `kz-dev-secret` | rafinerinin verdiği kimlik |
 | `KZ_DATA_DIR` | `apps/kz-server/data` | kalıcı durum (KZ kaydı, emirler, bildirimler, olaylar; JSON) |
 | `KZ_OPENING_MG` | `0` | açılış devri: kasada duran gram (demo `20000000`; AMR `VAULT_OPENING_MG` ile aynı) |
+| `AMR_DOC_KEY` | boş | rafinerinin belge imza anahtarı (`doc.sign_key`); verilirse K12 Belgeler'de imza da doğrulanır, verilmezse yalnız sha256 özeti |
 | `KZ_DEMO` | `1` | `0` ise demo ucu (`/api/debug/record-skew`) kapanır |
 | `LOG_LEVEL` | `info` | |
 
@@ -90,7 +91,7 @@ Okuma: K10 Kayıtlar ekranı (beş kaynak, metin ve tarih süzgeci, sayfa geçi�
 Emirler: `GET /api/orders` · `POST /api/orders {side, qty_mg, ccy}` (müşteri emri; demo kutusu) · `GET /api/orders/:id` · `POST /api/orders/:id/decision {decision: CLOSE | CARRY}` · `POST /api/orders/:id/resolve`.
 KZ kaydı: `GET /api/record` · `POST /api/record/snapshot` · `POST /api/record/resolve {explanation}` · `GET /api/record/statement` · `GET /api/documents/:id`.
 Olaylar: `POST /api/events` (rafineri çağırır, HMAC) · `GET /api/events`.
-Kasa talimatları (K4): `GET /api/vault` · `GET /api/vault/:ref` · `POST /api/vault {type, qty_mg, reason}` (elle, gerekçeli) · `POST /api/vault/:ref/retry` (tavan yüzünden duran talep) · `POST /api/vault/flush-mints` · `GET /api/vault/statement` (rafinerinin günlük kasa ekstresi).
+Kasa hesabı (K4): `GET /api/vault` · `GET /api/vault/:ref` · `POST /api/vault {type, qty_mg, reason}` (elle, gerekçeli) · `POST /api/vault/:ref/retry` (tavan yüzünden duran talep) · `POST /api/vault/flush-mints` · `GET /api/vault/statement` (rafinerinin günlük kasa ekstresi).
 Mahsuplaşma (K8): `GET /api/settlements` · `POST /api/settlements` · `POST /api/settlements/:id/reconcile|gold-leg|pay`.
 Teslimat ve rafinasyon (K6, K7): `GET /api/fulfilment` · `GET /api/catalog` · `POST /api/deliveries` · `POST /api/deliveries/:id/approve|cancel` · `POST /api/refining` · `POST /api/refining/:id/approve|cancel` · `PUT /api/fulfilment-params {burnMoment}`.
 Denetim günlüğü ve ikinci onay (K9): `GET /api/audit?limit=` · `GET /api/approvals` · `POST /api/approvals/:id/approve {approver}` · `POST /api/approvals/:id/reject`. Kritik uçlar (`PUT /api/pricing`, `PUT /api/order-params`, `PUT /api/stock-params`, `PUT /api/fulfilment-params`, `POST /api/settlements/:id/pay`, `POST /api/record/resolve`) onaysız gelince `202` ve onay numarası döner; değişiklik ancak `{approval_id, approver}` ile ve **farklı** bir kullanıcıyla uygulanır. Aktör `X-User` başlığından okunur.

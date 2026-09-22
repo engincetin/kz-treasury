@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { api, fmtDT, fmtG, VAULT_STATUS_TR, VAULT_TRIGGER_TR, type VaultInstruction, type VaultStatementDoc, type VaultView, type useLive } from "../api.ts";
+import { Pager, usePager } from "../components/Pager.tsx";
 
 type Live = ReturnType<typeof useLive>;
 
@@ -28,10 +29,11 @@ export function K4Vault({ live }: { live: Live }) {
 
   const capPct = v && v.placing_cap_mg > 0 ? v.committed_placing_mg / v.placing_cap_mg : 0;
 
+  const pItems = usePager(v?.items ?? [], 20);
   return (
     <div>
       <span className="tag">K4</span>
-      <h1>Kasa talimatları</h1>
+      <h1>Kasa hesabı</h1>
       <p className="sub">Kasa hesabına gram girişi ve çıkışı yalnız bu taleplerle olur. Girişte önce rafinerinin Kasa Giriş Fişi gelir, sonra mint yapılır; çıkışta önce burn yapılır, sonra talep gönderilir. Bu sıra sayesinde arz hiçbir an kasadaki gramı aşmaz (K1). Mint yalnız fişe karşıdır (K4); eşleşme uyuşmazlığında ve kasaya koyma vadesi geçtiğinde mint bloke olur. Talepler 07, 08, 09 ve 12'den kendiliğinden gelir; elle talimat yalnız yönetici işidir ve gerekçe ister.</p>
 
       <div className="grid c3" style={{ marginBottom: 14 }}>
@@ -87,7 +89,7 @@ export function K4Vault({ live }: { live: Live }) {
           <thead><tr><th>Zaman</th><th>Referans</th><th>Tür</th><th className="num">Gram</th><th>Tetik</th><th>Durum</th><th>Fiş</th><th>Mint / burn</th><th></th></tr></thead>
           <tbody>
             {(v?.items.length ?? 0) === 0 && <tr><td colSpan={9} className="small">Talimat yok</td></tr>}
-            {v?.items.map((i) => (
+            {pItems.slice.map((i) => (
               <tr key={i.ref}>
                 <td className="mono">{fmtDT(i.created_ts)}</td>
                 <td className="mono small">{i.ref}</td>
@@ -102,6 +104,7 @@ export function K4Vault({ live }: { live: Live }) {
             ))}
           </tbody>
         </table>
+        <Pager p={pItems} label="Talimatlar" />
       </section>
 
       <div className="grid c2">
