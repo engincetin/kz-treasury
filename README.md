@@ -81,7 +81,7 @@ Docker olmadan, sunum için üç komut: `docs/DEMO.md` → "Sabah başlatma".
 
 İki yön de yazılır: rafineriye giden her REST çağrısı (emir, hesap, kasa talimatı, mahsuplaşma) ve gelen her olay ile paneldeki her değiştirici istek. Her satırda zaman, uç, sonuç, süre, aktör ve **gövdenin sha256 özeti** vardır; gövdenin kendisi saklanmaz. Giden çağrının özeti rafineri tarafındaki gelen kaydın özetiyle birebir aynıdır: iki günlük birbirini doğrular.
 
-Okuma: K9 Parametreler ekranındaki "İstek günlüğü" bölümü ya da `GET /api/requests?limit=&direction=&errors=1`. Saklama süresi ve satır tavanı `PUT /api/log-params` ile değişir ve ikinci onay ister (kanıt süresini kısaltmak kritik aksiyondur).
+Okuma: K10 Kayıtlar ekranı (beş kaynak, metin ve tarih süzgeci, sayfa geçişi) ya da `GET /api/logs?source=&q=&from=&to=&limit=&offset=`. Kısa liste K9'da da durur (`GET /api/requests`). Saklama süresi ve satır tavanı `PUT /api/log-params` ile değişir ve ikinci onay ister (kanıt süresini kısaltmak kritik aksiyondur).
 
 ## Panel API'si
 
@@ -106,3 +106,4 @@ Hazine alım satımı (K5): `GET /api/treasury` · `POST /api/treasury {side, qt
 | 4 ✓ | fiziksel teslimat (emanet, burn anı), rafinasyon (katalog, teklif, onay) | K6, K7 |
 | 5 ✓ | mahsuplaşma (mutabakat, altın ve para bacağı), parametreler ve ikinci onay | K8, K9 |
 | 6 ✓ | demo senaryoları S0..S9 (KZ simülatörü), sunum senaryosu, kullanım kılavuzu, Docker, test raporu | |
+| + | görsel dil (açılır kapanır yan menü, açık / koyu mod, responsive), kayıtlar ekranı, sağlık ve istek günlüğü | K10 |

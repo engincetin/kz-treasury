@@ -92,7 +92,10 @@ export function K1Connection({ live }: { live: Live }) {
       </section>
 
       <section className="card" style={{ marginTop: 14 }}>
-        <h2>Son tick'ler (rafineriden)</h2>
+        <div className="row" style={{ justifyContent: "space-between", alignItems: "baseline" }}>
+          <h2 style={{ margin: 0 }}>Son tick'ler (rafineriden)</h2>
+          <Link to="/kayitlar" className="small">tamamı ve geçmişi: K10 Kayıtlar →</Link>
+        </div>
         <table>
           <thead><tr><th className="num">seq</th><th>Zaman</th><th className="num">USD bid / ask</th><th className="num">EUR bid / ask</th><th className="num">AED bid / ask</th><th>tradable</th></tr></thead>
           <tbody>

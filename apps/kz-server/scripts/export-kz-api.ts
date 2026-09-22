@@ -79,6 +79,12 @@ const OPS: Record<string, Op> = {
   "GET /api/approvals": { summary: "K9 ikinci onay bekleyenler ve karara bağlananlar" },
   "POST /api/approvals/:id/approve": { summary: "K9 onayla", description: "isteyen kendi isteğini onaylayamaz, onay bir kez kullanılır.", body: { approver: "onaylayan" } },
   "POST /api/approvals/:id/reject": { summary: "K9 onay isteğini reddet" },
+  "GET /api/logs": {
+    summary: "K10 kayıtlar: beş kaynak tek biçimde, süzgeçli ve sayfalı",
+    description: "Kaynaklar: requests (istek günlüğü), audit (denetim günlüğü), events (rafineri olayları), notifications (bildirimler), ticks (fiyat tick'leri). Satırlar zaman · kim · ne · sonuç olarak döner.",
+    params: [{ name: "source", in: "query", description: "requests | audit | events | notifications | ticks" }, { name: "q", in: "query", description: "metin süzgeci" }, { name: "from", in: "query", description: "YYYY-AA-GG" }, { name: "to", in: "query", description: "YYYY-AA-GG" }, { name: "limit", in: "query" }, { name: "offset", in: "query" }],
+    returns: "{ items, total, source }",
+  },
   "GET /api/requests": { summary: "K9 istek günlüğü (VARA kanıtı)", description: "rafineriye giden ve gelen çağrılar; gövdenin kendisi değil sha256 özeti saklanır.", params: [{ name: "limit", in: "query" }, { name: "direction", in: "query", description: "GİDEN ya da GELEN" }, { name: "errors", in: "query", description: "1 ise yalnız hatalar" }] },
   "PUT /api/log-params": { summary: "K9 istek günlüğü saklama parametreleri", body: { retentionDays: "saklama süresi (gün)", maxRows: "satır tavanı" }, approval: true },
   "PUT /api/pricing": { summary: "K9 fiyatlama: marj, marj tavanı, komisyon", body: { marginBps: "marj (bps)", marginCapBps: "marj tavanı (bps)", commissionBps: "komisyon (bps)" }, approval: true },

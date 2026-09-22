@@ -23,8 +23,6 @@ export function K9Params({ live }: { live: Live }) {
   const [reqSum, setReqSum] = useState<RequestSummary | null>(null);
   const [reqQ, setReqQ] = useState({ direction: "", errors: false });
   const [retention, setRetention] = useState(90);
-  /** Onay numarası → o isteği açan çağrı: onaylanınca aynı çağrı numarayla tekrarlanır. */
-  const [apply, setApply] = useState<Record<number, (a: { approval_id: number; approver: string }) => Promise<unknown>>>({});
 
   useEffect(() => {
     if (!s) return;
@@ -50,21 +48,18 @@ export function K9Params({ live }: { live: Live }) {
   const ask = async (what: string, call: (a: { approval_id?: number; approver?: string }) => Promise<unknown>) => {
     try {
       const r = await call({});
-      if (needsApproval(r)) {
-        setApply((m) => ({ ...m, [r.approval_id]: (a) => call(a) }));
-        setMsg(`"${what}" ikinci onay bekliyor (onay ${r.approval_id}). İsteyen ${r.requested_by}; onaylayan farklı olmalı.`);
-      } else setMsg(`"${what}" uygulandı.`);
+      if (needsApproval(r)) setMsg(`"${what}" ikinci onay bekliyor (onay ${r.approval_id}). İsteyen ${r.requested_by}; aşağıdaki listeden farklı bir kullanıcı onaylayınca uygulanır.`);
+      else setMsg(`"${what}" uygulandı.`);
       await reload();
       live.refresh();
     } catch (e) { setMsg(`Hata: ${(e as Error).message}`); }
   };
 
   const confirm = async (a: ApprovalRequest) => {
-    const call = apply[a.id];
     try {
-      if (call) await call({ approval_id: a.id, approver: approver.trim() });
-      else await api.approve(a.id, approver.trim()); // başka oturumda açılmış istek: yalnız onaylanır
-      setMsg(`"${a.summary}" onaylandı ve günlüğe yazıldı (isteyen ${a.requested_by}, onaylayan ${approver.trim()}).`);
+      // onay sunucuda uygulanır: hangi ekrandan açıldığı fark etmez
+      const r = await api.approve(a.id, approver.trim()) as { applied?: string };
+      setMsg(`"${a.summary}" onaylandı ve uygulandı (isteyen ${a.requested_by}, onaylayan ${approver.trim()})${r.applied && r.applied !== "uygulandı" ? ` · ${r.applied}` : ""}.`);
       await reload();
       live.refresh();
     } catch (e) { setMsg(`Hata: ${(e as Error).message}`); }

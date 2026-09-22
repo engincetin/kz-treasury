@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { needsApproval, api, fmtDT, fmtG, fmtMoney, STL_STATUS_TR, STL_TRIGGER_TR, type KzSettlement, type useLive } from "../api.ts";
 import { nextAction, openMoneyLegs, steps } from "../settlementFlow.ts";
+import { ApprovalBox } from "../components/ApprovalBox.tsx";
 
 type Live = ReturnType<typeof useLive>;
 
@@ -19,6 +20,8 @@ export function K8Settlement({ live }: { live: Live }) {
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState("");
   const [reason, setReason] = useState("");
+  /** Kritik aksiyon 202 dönünce onay kutusu açılır; onaylanınca sunucu uygular. */
+  const [pending, setPending] = useState<{ id: number; requestedBy: string; summary: string } | null>(null);
 
   const load = () => api.settlements().then((r) => { setItems(r.items); setOpen(r.open); if (sel) setSel(r.items.find((x) => x.settlement_id === sel.settlement_id) ?? null); }).catch((e) => setMsg(`Hata: ${e.message}`));
   useEffect(() => { load(); }, [live.version]);
@@ -27,8 +30,10 @@ export function K8Settlement({ live }: { live: Live }) {
     setBusy(key); setMsg("");
     try {
       const r = await fn();
-      // kritik aksiyon: sunucu uygulamadı, ikinci onay bekliyor (K9'dan onaylanır)
-      setMsg(needsApproval(r) ? `${r.message}. Onay K9 Parametreler ekranından verilir (onay ${r.approval_id}).` : done);
+      if (needsApproval(r)) {
+        setPending({ id: r.approval_id, requestedBy: r.requested_by, summary: String((r as { message: string }).message).split(":")[0] });
+        setMsg("");
+      } else { setPending(null); setMsg(done); }
       await load(); live.refresh();
     }
     catch (e) { setMsg(`Hata: ${(e as Error).message}`); }
@@ -93,6 +98,7 @@ export function K8Settlement({ live }: { live: Live }) {
         </div>
       </div>
 
+      {pending && <ApprovalBox id={pending.id} requestedBy={pending.requestedBy} summary={pending.summary} onDone={async (m) => { setPending(null); setMsg(m); await load(); live.refresh(); }} />}
       {msg && <div className="note" style={{ marginBottom: 12 }}>{msg}</div>}
 
       {/* ---- mutabakat farkları ---- */}

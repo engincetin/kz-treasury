@@ -186,6 +186,72 @@
         }
       }
     },
+    "/api/logs": {
+      "get": {
+        "summary": "K10 kayıtlar: beş kaynak tek biçimde, süzgeçli ve sayfalı",
+        "description": "Kaynaklar: requests (istek günlüğü), audit (denetim günlüğü), events (rafineri olayları), notifications (bildirimler), ticks (fiyat tick'leri). Satırlar zaman · kim · ne · sonuç olarak döner.",
+        "parameters": [
+          {
+            "schema": {
+              "type": "string"
+            },
+            "name": "source",
+            "in": "query",
+            "description": "requests | audit | events | notifications | ticks"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "name": "q",
+            "in": "query",
+            "description": "metin süzgeci"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "name": "from",
+            "in": "query",
+            "description": "YYYY-AA-GG"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "name": "to",
+            "in": "query",
+            "description": "YYYY-AA-GG"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "name": "limit",
+            "in": "query"
+          },
+          {
+            "schema": {
+              "type": "string"
+            },
+            "name": "offset",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "{ items, total, source }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/requests": {
       "get": {
         "summary": "K9 istek günlüğü (VARA kanıtı)",
@@ -1676,30 +1742,12 @@
         }
       }
     },
-    "/api/stream": {
+    "/kz-api.json": {
       "get": {
-        "summary": "Canlı akış (SSE): tick, bildirim, durum değişikliği",
+        "summary": "Bu belge",
         "responses": {
           "200": {
             "description": "OK",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "object"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/health": {
-      "get": {
-        "summary": "Sağlık durumu: alt sistemler ayrı ayrı",
-        "description": "kalıcı durum, rafineri soketi, müşteri işlemleri, KZ kaydı, K1 ve K2 kontrolleri, kasa blokeleri, emirler, olaylar. HTTP 503 yalnız iş göremez durumda (kayıt yazılamıyor ya da kontrol bozuk).",
-        "responses": {
-          "200": {
-            "description": "{ status, uptime_s, checks }",
             "content": {
               "application/json": {
                 "schema": {
@@ -1728,12 +1776,30 @@
         }
       }
     },
-    "/kz-api.json": {
+    "/api/stream": {
       "get": {
-        "summary": "Bu belge",
+        "summary": "Canlı akış (SSE): tick, bildirim, durum değişikliği",
         "responses": {
           "200": {
             "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Sağlık durumu: alt sistemler ayrı ayrı",
+        "description": "kalıcı durum, rafineri soketi, müşteri işlemleri, KZ kaydı, K1 ve K2 kontrolleri, kasa blokeleri, emirler, olaylar. HTTP 503 yalnız iş göremez durumda (kayıt yazılamıyor ya da kontrol bozuk).",
+        "responses": {
+          "200": {
+            "description": "{ status, uptime_s, checks }",
             "content": {
               "application/json": {
                 "schema": {

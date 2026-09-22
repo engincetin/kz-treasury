@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { NavLink, Route, Routes } from "react-router-dom";
+import { Link, NavLink, Route, Routes } from "react-router-dom";
 import { api, ageSec, currentUser, fmtG, fmtMoney, KZ_USERS, setCurrentUser, useLive, type Notice, type Status } from "./api.ts";
 import { Icon, useSidebar, useTheme } from "./ui.tsx";
+import { LogsPage } from "./pages/Logs.tsx";
 import { K1Connection } from "./pages/K1Connection.tsx";
 import { Placeholder } from "./pages/Placeholder.tsx";
 import { K2Accounts } from "./pages/K2Accounts.tsx";
@@ -23,6 +24,7 @@ const SCREENS = [
   { code: "K7", path: "/rafinasyon", title: "Rafinasyon", sprint: 4, done: true },
   { code: "K8", path: "/mahsuplasma", title: "Mahsuplaşma", sprint: 5, done: true },
   { code: "K9", path: "/parametreler", title: "Parametreler", sprint: 5, done: true },
+  { code: "K10", path: "/kayitlar", title: "Kayıtlar", sprint: 6, done: true },
 ];
 
 export function App() {
@@ -46,6 +48,7 @@ export function App() {
             </NavLink>
           ))}
         </nav>
+        <SideStatus />
       </aside>
       <TopBar s={live.status} sse={live.connected} refresh={live.refresh} onMenu={side.openMobile} />
       <main className="main">
@@ -59,6 +62,7 @@ export function App() {
           <Route path="/rafinasyon" element={<K7Refining live={live} />} />
           <Route path="/mahsuplasma" element={<K8Settlement live={live} />} />
           <Route path="/parametreler" element={<K9Params live={live} />} />
+          <Route path="/kayitlar" element={<LogsPage endpoint="/api/logs" tag="K10" title="Kayıtlar" />} />
         </Routes>
       </main>
     </div>
@@ -71,77 +75,99 @@ function TopBar({ s, sse, refresh, onMenu }: { s: Status | null; sse: boolean; r
   const [, tick] = useState(0);
   useEffect(() => { const t = setInterval(() => tick((x) => x + 1), 1000); return () => clearInterval(t); }, []);
   useEffect(() => { if (open) api.notifications().then((r) => setItems(r.items)); }, [open, s?.unread]);
+  // Esc ile kapanır; dışarı tıklamak da kapatır (arka perde).
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
   const usd = s?.socket.lastPrices?.find((p) => p.ccy === "USD");
-  const q = s?.quotes.find((x) => x.ccy === "USD");
+  const waiting = s ? s.unanswered + s.lateFills + s.awaitingDelivery + s.treasury.pending : 0;
+
   return (
     <header className="topbar">
       <button className="hamburger" onClick={onMenu} title="Menü" aria-label="Menü">{Icon.menu}</button>
-      <div className="chips">
-      <div className="chip">
-        <span className="l">Müşteri işlemleri</span>
-        <span className="v"><span className={`dot ${s?.trading.open ? "ok" : "bad"}`} />{s ? (s.trading.open ? "Açık" : "Durdu") : "…"}</span>
-        <span className="s">{s?.trading.open ? "fiyat veriliyor" : s?.trading.reason}</span>
-      </div>
-      <div className="chip">
-        <span className="l">Rafineri fiyatı</span>
-        <span className="v mono">{usd ? `USD ${usd.bid} / ${usd.ask}` : "yok"}</span>
-        <span className="s">{s?.socket.lastTickTs ? `seq ${s.socket.seq} · ${ageSec(s.socket.lastMsgTs)} sn önce${s.socket.stale ? " · BAYAT" : ""}` : "tick yok"}</span>
-      </div>
-      <div className="chip">
-        <span className="l">Müşteri fiyatı (USD)</span>
-        <span className="v mono">{q ? `${q.clientSell} / ${q.clientBuy}` : "yok"}</span>
-        <span className="s">{s ? `marj %${(s.pricing.marginBps / 100).toFixed(2)} gömülü · komisyon %${(s.pricing.commissionBps / 100).toFixed(2)} ayrı` : ""}</span>
-      </div>
-      <div className="chip">
-        <span className="l">Kasa hesabı (KZ kaydı)</span>
-        <span className="v mono">{s ? fmtG(s.record.vault.in_vault_mg + s.record.vault.placing_mg + s.record.vault.shipping_mg) : "…"} g</span>
-        <span className="s">
-          eşleşme <span className={`pill ${s?.record.match === "EŞİT" ? "ok" : s?.record.match === "RECONCILE" ? "bad" : "warn"}`}>{s?.record.match ?? ""}</span> · K1 {s?.checks.k1.ok ? "✓" : "✗"} · K2 {s?.checks.k2.ok ? "✓" : "✗"}
-          {s?.vault && (s.vault.mint_block ? " · mint BLOKE" : s.vault.open > 0 ? ` · ${s.vault.open} kasa talimatı açık` : "")}
-        </span>
-      </div>
-      <div className="chip">
-        <span className="l">Cari hesap (KZ kaydı)</span>
-        <span className="v mono">{s ? `${s.record.current_account.gold_mg >= 0 ? "+" : ""}${fmtG(s.record.current_account.gold_mg)} g` : "…"}</span>
-        <span className="s">{s?.record.current_account.money.map((m) => `${m.ccy} ${fmtMoney(m.cents)}`).join(" · ")}</span>
-      </div>
-      </div>
-      <button className="bell" onClick={() => setOpen((v) => !v)}>🔔 <span className="label">Bildirimler</span> {s && s.unread > 0 && <span className="n">{s.unread}</span>}{s && (s.unanswered + s.lateFills + s.awaitingDelivery + s.treasury.pending) > 0 && <span className="n" style={{ background: "var(--warn)" }} title="cevapsız / geç fill · teslim bekleyen · onay bekleyen">{s.unanswered + s.lateFills + s.awaitingDelivery + s.treasury.pending}</span>}</button>
-      {open && (
-        <div className="drawer">
-          {items.length === 0 && <div className="item">Bildirim yok</div>}
-          {items.map((n) => (
-            <div key={n.id} className={`item ${n.read ? "" : "unread"}`}>
-              <div style={{ flex: 1 }}><div><b>{n.title}</b></div>{n.body && <div className="small">{n.body}</div>}<div className="t">{new Date(n.ts).toLocaleString("tr-TR")}</div></div>
-              {!n.read && <button className="ghost" onClick={async () => { await api.markRead(n.id); setItems((await api.notifications()).items); refresh(); }}>Okundu</button>}
-            </div>
-          ))}
-        </div>
-      )}
-      <UserPicker />
+
+      {/* üst şeritte yalnız iki canlı değer: işlem durumu ve rafineri fiyatı. Ayrıntı ilgili ekranda. */}
+      <span className={`state ${s?.trading.open ? "ok" : "bad"}`} title={s?.trading.open ? "fiyat veriliyor" : s?.trading.reason}>
+        <span className={`dot ${s?.trading.open ? "ok" : "bad"}`} />
+        {s ? (s.trading.open ? "Müşteri işlemleri açık" : "Müşteri işlemleri durdu") : "…"}
+      </span>
+      <span className="price" title={s?.socket.lastTickTs ? `seq ${s.socket.seq} · ${ageSec(s.socket.lastMsgTs)} sn önce` : "tick yok"}>
+        <span className="k">RAFİNERİ</span>
+        <span className="mono v">{usd ? `${usd.bid} / ${usd.ask}` : "yok"}</span>
+        <span className="k">USD/g</span>
+      </span>
+
+      <div className="tspace" />
+
       <ThemeButton />
-      <span className="small sse" style={{ alignSelf: "center" }}>canlı akış {sse ? "açık" : "kapalı"}</span>
+      <button className="bell" onClick={() => setOpen((v) => !v)} title="Bildirimler" aria-label="Bildirimler">
+        {Icon.bellIcon}
+        {s && s.unread > 0 && <span className="n">{s.unread}</span>}
+        {waiting > 0 && <span className="n warn" title="cevapsız / geç fill · teslim bekleyen · onay bekleyen">{waiting}</span>}
+      </button>
+      <UserPicker />
+
+      {open && (
+        <>
+          <div className="drawer-backdrop" onClick={() => setOpen(false)} />
+          <div className="drawer">
+            <div className="dhead">
+              <b>Bildirimler</b>
+              <span className="sp" />
+              <button className="ghost" onClick={async () => { await Promise.all(items.filter((n) => !n.read).map((n) => api.markRead(n.id))); setItems((await api.notifications()).items); refresh(); }}>Tümünü okundu</button>
+              <button className="ghost" onClick={() => setOpen(false)} aria-label="Kapat">✕</button>
+            </div>
+            {items.length === 0 && <div className="item">Bildirim yok</div>}
+            {items.map((n) => {
+              const to = noticeRoute(n.type);
+              return (
+                <div key={n.id} className={`item ${n.read ? "" : "unread"}`}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div><b>{n.title}</b></div>
+                    {n.body && <div className="small">{n.body}</div>}
+                    <div className="t">{new Date(n.ts).toLocaleString("tr-TR")}</div>
+                    <div className="row" style={{ marginTop: 6 }}>
+                      {to && <Link to={to.path} onClick={async () => { if (!n.read) { await api.markRead(n.id); refresh(); } setOpen(false); }}><button className="primary">{to.label}</button></Link>}
+                      {!n.read && <button className="ghost" onClick={async () => { await api.markRead(n.id); setItems((await api.notifications()).items); refresh(); }}>Okundu</button>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+      <span className="sse-hidden" hidden>{sse ? "" : ""}</span>
     </header>
   );
 }
 
-/**
- * Aktif kullanıcı. Demoda oturum açma yoktur: seçilen ad her istekte X-User ile gider,
- * denetim günlüğüne yazılır ve ikinci onayda "isteyen ile onaylayan aynı olamaz" kuralını besler.
- */
+/** Bildirimi ilgili ekrana bağlar: "okundu" demek yerine işi yapılacak yere götürür. */
+function noticeRoute(type: string): { path: string; label: string } | null {
+  if (type.startsWith("approval")) return { path: "/parametreler", label: "Onaya git (K9)" };
+  if (type.startsWith("account") || type.startsWith("debug")) return { path: "/hesaplar", label: "Hesaplara git (K2)" };
+  if (type.startsWith("mint") || type.startsWith("vault") || type.startsWith("burn")) return { path: "/kasa", label: "Kasa talimatlarına git (K4)" };
+  if (type.startsWith("settlement")) return { path: "/mahsuplasma", label: "Mahsuplaşmaya git (K8)" };
+  if (type.startsWith("delivery")) return { path: "/teslimat", label: "Teslimata git (K6)" };
+  if (type.startsWith("refining") || type.startsWith("catalog")) return { path: "/rafinasyon", label: "Rafinasyona git (K7)" };
+  if (type.startsWith("treasury")) return { path: "/hazine", label: "Hazine alım satımına git (K5)" };
+  if (type.startsWith("order")) return { path: "/emirler", label: "Emir günlüğüne git (K3)" };
+  if (type.startsWith("trading") || type.startsWith("socket") || type.startsWith("price")) return { path: "/", label: "Bağlantı ve fiyata git (K1)" };
+  return null;
+}
+
 function UserPicker() {
   const [u, setU] = useState(currentUser.name);
+  const initials = u.slice(0, 2).toUpperCase();
   return (
-    <label className="chip" style={{ minWidth: 0 }}>
-      <span className="l">Kullanıcı</span>
-      <select
-        value={u}
-        onChange={(e) => { setCurrentUser(e.target.value); setU(e.target.value); }}
-        style={{ border: 0, background: "transparent", font: "inherit", fontWeight: 600, padding: 0 }}
-      >
+    <label className="user" title="Aktif kullanıcı: aksiyonlar bu adla günlüğe yazılır">
+      <span className="avatar">{initials}</span>
+      <select value={u} onChange={(e) => { setCurrentUser(e.target.value); setU(e.target.value); }}>
         {KZ_USERS.map((x) => <option key={x} value={x}>{x}</option>)}
       </select>
-      <span className="s">aksiyonlar bu adla günlüğe yazılır</span>
     </label>
   );
 }
@@ -154,5 +180,35 @@ function ThemeButton() {
     <button className="theme-btn" onClick={theme.cycle} title={`${label} (değiştirmek için tıklayın)`} aria-label={label}>
       {theme.mode === "light" ? Icon.sun : theme.mode === "dark" ? Icon.moon : Icon.auto}
     </button>
+  );
+}
+
+/**
+ * Yan menünün altındaki sabit durum satırları.
+ *
+ * Bağlantı ve kontroller üst şeritte değil burada durur: her ekranda görünür, yer kaplamaz
+ * ve üst şerit gerçekten günlük işe (fiyat, işlem durumu, bildirim, kullanıcı) kalır.
+ */
+function SideStatus() {
+  const live = useLive();
+  const s = live.status;
+  const sock = s?.socket;
+  const ok = sock?.connection === "SUBSCRIBED" && !sock?.stale;
+  const match = s?.record.match;
+  return (
+    <div className="side-status">
+      <div className="srow" title={sock?.url}>
+        <span className={`dot ${ok ? "ok" : sock?.connection === "DISCONNECTED" ? "bad" : "warn"}`} />
+        <span className="label">{ok ? "Rafineri soketi bağlı" : sock?.stale ? "Fiyat bayat" : "Rafineri soketi kopuk"}</span>
+      </div>
+      <div className="srow" title="KZ kaydı ile rafineri bakiye bilgisinin eşleşmesi ve kontroller">
+        <span className={`dot ${match === "EŞİT" ? "ok" : match === "RECONCILE" ? "bad" : "warn"}`} />
+        <span className="label">Eşleşme {match ?? "…"} · K1 {s?.checks.k1.ok ? "✓" : "✗"} · K2 {s?.checks.k2.ok ? "✓" : "✗"}</span>
+      </div>
+      <div className="srow" title="sunucudan canlı akış (SSE)">
+        <span className={`dot ${live.connected ? "ok" : "warn"}`} />
+        <span className="label">Canlı akış {live.connected ? "açık" : "kapalı"}</span>
+      </div>
+    </div>
   );
 }

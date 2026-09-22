@@ -29,6 +29,7 @@ import { healthSnapshot } from "./health.ts";
 import { docsRoutes } from "./docs.ts";
 import { AuditDesk, ApprovalError, SECOND_APPROVAL, type AuditEntry, type ApprovalRequest } from "./audit.ts";
 import { DEFAULT_LOG_PARAMS, RequestLog, shouldLogIncoming, type RequestLogParams, type RequestLogRow } from "./reqlog.ts";
+import { queryLogs } from "./logs.ts";
 import type { Catalog } from "@amr/contract";
 
 const PORT = Number(process.env.PORT ?? 5000);
@@ -267,6 +268,53 @@ app.get<{ Querystring: { limit?: string } }>("/api/audit", async (req) => ({
   second_approval: SECOND_APPROVAL,
 }));
 app.get("/api/approvals", async () => ({ pending: auditDesk.pending(), items: auditDesk.listApprovals(50) }));
+
+/**
+ * Onaylanan kritik aksiyonu uygular.
+ *
+ * Onay ile uygulama aynı yerde durur: ikinci kullanıcı onayladığı anda iş yapılır,
+ * kimsenin ayrıca "şimdi bir daha gönder" demesi gerekmez. İstek hangi ekrandan
+ * açılmışsa açılsın (K2, K6, K8, K9) sonuç aynıdır. Onay bir kez uygulanır.
+ */
+async function applyApproved(a: ApprovalRequest): Promise<string> {
+  if (a.consumed) return "zaten uygulanmış";
+  a.consumed = true;
+  const p = a.payload as Record<string, unknown>;
+  switch (a.action) {
+    case "pricing.update": Object.assign(S.pricing, p); break;
+    case "order-params.update": Object.assign(S.orderParams, p); break;
+    case "stock-params.update": Object.assign(S.stock, p); break;
+    case "fulfilment-params.update": Object.assign(S.fulfilment, p); break;
+    case "log-params.update": {
+      if (p.retentionDays !== undefined) S.log.retentionDays = Math.max(0, Number(p.retentionDays));
+      if (p.maxRows !== undefined) S.log.maxRows = Math.max(0, Number(p.maxRows));
+      reqLog.prune();
+      break;
+    }
+    case "settlement.pay": {
+      await settlement.pay(String(p.settlement_id), String(p.ccy ?? "USD"));
+      break;
+    }
+    case "record.resolve": {
+      const acc = await amr.account();
+      resolveWithSnapshot(S.record, acc, String(p.explanation ?? "onaylı düzeltme"));
+      notify("account.resolved", "RECONCILE çözüldü", String(p.explanation ?? ""));
+      vault.flushMints();
+      break;
+    }
+    default: a.consumed = false; return `bu aksiyon kendiliğinden uygulanmıyor: ${a.action}`;
+  }
+  auditDesk.log(a.decided_by ?? "bilinmiyor", `${a.action}:applied`, `${a.summary} onayla birlikte uygulandı (isteyen ${a.requested_by})`, undefined, a.payload);
+  changed();
+  return "uygulandı";
+}
+/** Kayıtlar (K10): beş kaynak tek biçimde, filtreli ve sayfalı. */
+app.get<{ Querystring: { source?: string; q?: string; from?: string; to?: string; limit?: string; offset?: string } }>("/api/logs", async (req) =>
+  queryLogs(
+    { requests: S.requests, audit: S.audit, events: S.events, notifications: S.notices, ticks },
+    { source: req.query.source, q: req.query.q, from: req.query.from, to: req.query.to, limit: Number(req.query.limit ?? 50), offset: Number(req.query.offset ?? 0) },
+  ));
+
 /** İstek günlüğü (VARA kanıtı): giden ve gelen çağrılar, gövde özetiyle. */
 app.get<{ Querystring: { limit?: string; direction?: string; path?: string; errors?: string } }>("/api/requests", async (req) => ({
   summary: reqLog.summary(),
@@ -286,8 +334,17 @@ app.put<{ Body: Partial<RequestLogParams> & Approvable }>("/api/log-params", asy
   } catch (e) { return reply.code(409).send({ error: (e as Error).message }); }
 });
 app.post<{ Params: { id: string }; Body: { approver?: string } }>("/api/approvals/:id/approve", async (req, reply) => {
-  try { return auditDesk.approve(Number(req.params.id), req.body?.approver?.trim() || actorOf(req)); }
+  let approval: ApprovalRequest;
+  try { approval = auditDesk.approve(Number(req.params.id), req.body?.approver?.trim() || actorOf(req)); }
   catch (e) { return reply.code(409).send({ error: (e as Error).message }); }
+  try {
+    const applied = await applyApproved(approval);
+    return { ...approval, applied };
+  } catch (e) {
+    // onay verildi ama uygulama patladı: durum kaydedilir, kullanıcıya sebebi söylenir
+    auditDesk.log(approval.decided_by ?? "bilinmiyor", `${approval.action}:apply_failed`, `${approval.summary} uygulanamadı: ${(e as Error).message}`);
+    return reply.code(502).send({ error: `onay verildi ama uygulanamadı: ${(e as Error).message}`, approval });
+  }
 });
 app.post<{ Params: { id: string } }>("/api/approvals/:id/reject", async (req, reply) => {
   try { return auditDesk.reject(Number(req.params.id), actorOf(req)); }
@@ -475,10 +532,10 @@ app.post<{ Params: { id: string } }>("/api/settlements/:id/gold-leg", async (req
 /** Ödeme talimatı kritiktir (K5: yalnız şirket banka hesabından): ikinci onay ister. */
 app.post<{ Params: { id: string }; Body: { ccy?: string } & Approvable }>("/api/settlements/:id/pay", async (req, reply) => {
   try {
-    const g = gate<{ ccy?: string }>({ headers: req.headers as Record<string, unknown>, body: { ccy: req.body?.ccy ?? "USD", approval_id: req.body?.approval_id, approver: req.body?.approver } }, "settlement.pay");
+    const g = gate<{ settlement_id: string; ccy?: string }>({ headers: req.headers as Record<string, unknown>, body: { settlement_id: req.params.id, ccy: req.body?.ccy ?? "USD", approval_id: req.body?.approval_id, approver: req.body?.approver } }, "settlement.pay");
     if ("pending" in g) return reply.code(202).send(needsApproval(g));
-    const w = await settlement.pay(req.params.id, g.payload.ccy ?? "USD");
-    return logged(req, "settlement.pay", `mahsuplaşma ${req.params.id} · ${g.payload.ccy} bacağı için ödeme talimatı verildi`, w);
+    const w = await settlement.pay(g.payload.settlement_id, g.payload.ccy ?? "USD");
+    return logged(req, "settlement.pay", `mahsuplaşma ${g.payload.settlement_id} · ${g.payload.ccy} bacağı için ödeme talimatı verildi`, w);
   } catch (e) { return reply.code(e instanceof ApprovalError ? 409 : 400).send({ error: (e as Error).message }); }
 });
 
