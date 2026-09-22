@@ -68,6 +68,12 @@ Docker olmadan, sunum için üç komut: `docs/DEMO.md` → "Sabah başlatma".
 | `KZ_DEMO` | `1` | `0` ise demo ucu (`/api/debug/record-skew`) kapanır |
 | `LOG_LEVEL` | `info` | |
 
+## Sağlık ve izleme
+
+`GET /health`: alt sistemler ayrı ayrı (kalıcı durum dosyası, rafineri fiyat soketi, müşteri işlemleri, KZ kaydının eşleşmesi, K1 ve K2 kontrolleri, kasa talimatı blokeleri, emirler, rafineri olayları, açık mahsuplaşma penceresi). Her kontrolde `ok`, `degraded` ya da `down` ve tek cümlelik açıklama vardır. HTTP 503 yalnız `down` durumunda döner: kalıcı durum yazılamıyorsa ya da bir kontrol (K1 `A ≤ V`, K2 `S + T = K`) bozuksa. Soket kopukluğu `degraded` sayılır.
+
+Rafineri tarafının API dokümanı sunucusundan açılır: `http://localhost:4000/docs`.
+
 ## Panel API'si
 
 `GET /api/refinery/status` · `GET /api/refinery/ticks?limit=50` · `POST /api/trading/stop {reason}` · `POST /api/trading/start` · `GET /api/notifications` · `POST /api/notifications/:id/read` · `PUT /api/pricing {marginBps, marginCapBps, commissionBps}` · `PUT /api/order-params {slippageBps, timeLimitMs, unansweredGraceMs, minOrderUsdCents}` · SSE `GET /api/stream` · `GET /health`.

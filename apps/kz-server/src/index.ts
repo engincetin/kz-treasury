@@ -25,6 +25,7 @@ import { DEFAULT_STOCK_PARAMS, VaultDesk, type StockParams, type VaultInstructio
 import { TreasuryDesk, requiredApprovals, type TreasuryRequest } from "./treasury.ts";
 import { DEFAULT_FULFILMENT, FulfilmentDesk, type FulfilmentParams, type KzDelivery, type KzRefining } from "./fulfilment.ts";
 import { KzSettlementDesk, type KzSettlement } from "./settlement.ts";
+import { healthSnapshot } from "./health.ts";
 import type { Catalog } from "@amr/contract";
 
 const PORT = Number(process.env.PORT ?? 5000);
@@ -455,7 +456,34 @@ app.get("/api/stream", async (req, reply) => {
   req.raw.on("close", () => { bus.off("event", on); clearInterval(ping); });
   await new Promise(() => {});
 });
-app.get("/health", async () => ({ ok: true }));
+/** Sağlık: alt sistemler ayrı ayrı. HTTP 503 yalnız iş göremez durumda (bkz. health.ts). */
+app.get("/health", async (_req, reply) => {
+  const h = healthSnapshot({
+    socket: () => client.state,
+    record: () => S.record,
+    trading: () => ({ open: tradingOpen(), reason: tradingReason() }),
+    store: () => ({ path: store.file, ok: !store.lastError, error: store.lastError }),
+    counts: () => ({
+      orders: S.orders.length,
+      open_orders: S.orders.filter((o) => o.status === "SENT" || o.status === "UNANSWERED").length,
+      unanswered: desk.unanswered().length,
+      late_fills: desk.lateFills().length,
+      events: S.events.length,
+      last_event_ts: S.events[0]?.received_ts ?? null,
+      notices_unread: S.notices.filter((n) => !n.read).length,
+    }),
+    vault: () => ({
+      open: vault.instructions.filter((i) => i.status === "REQUESTED" || i.status === "HOLD" || i.status === "ACCEPTED" || i.status === "PLACING" || i.status === "OVERDUE").length,
+      holds: vault.holds().length,
+      awaiting_mint: vault.awaitingMint().length,
+      mint_block: vault.mintBlock(),
+      vault_out_block: vault.vaultOutBlock(),
+    }),
+    settlement: () => ({ open_id: settlement.open()?.settlement_id ?? null, open_status: settlement.open()?.status ?? null }),
+    amrUrl: AMR_HTTP_URL,
+  });
+  return reply.code(h.status === "down" ? 503 : 200).send(h);
+});
 
 const webDist = resolve(import.meta.dirname, "../../kz-web/dist");
 if (existsSync(webDist)) {
