@@ -5,11 +5,11 @@ import { api, ageSec, fmtTime, type useLive } from "../api.ts";
 type Live = ReturnType<typeof useLive>;
 
 /**
- * K11 Fiyat: rafineri tarafındaki R2'nin karşılığı.
+ * K2 Fiyat: rafineri tarafındaki R2'nin karşılığı.
  * Rafineri fiyatından müşteri fiyatına zincir, son tick'ler ve müşteri işlemlerini durdur / başlat.
  * Bağlantı ayarları (soket adresi, kimlik) Ayarlar ekranındadır; burada yalnız durum görünür.
  */
-export function K11Price({ live }: { live: Live }) {
+export function K2Price({ live }: { live: Live }) {
   const s = live.status;
   const sock = s?.socket;
   const [reason, setReason] = useState("");
@@ -24,7 +24,7 @@ export function K11Price({ live }: { live: Live }) {
 
   return (
     <div>
-      <span className="tag">K11</span>
+      <span className="tag">K2</span>
       <h1>Fiyat</h1>
       <p className="sub">Fiyat rafineriden soketle gelir; marj gömülerek müşteri fiyatı olur, komisyon ayrı satırdır. Kural: 10 saniye mesaj yoksa fiyat bayat, rafineri yayını durduysa ya da soket kopuksa müşteri işlemleri kendiliğinden durur. Elle de durdurulabilir.</p>
 

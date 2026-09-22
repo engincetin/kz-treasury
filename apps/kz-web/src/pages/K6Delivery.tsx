@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { needsApproval, api, fmtDT, fmtG, fmtMoney, FUL_STATUS_TR, type FulfilmentView, type KzDelivery, type useLive } from "../api.ts";
+import { needsApproval, api, fmtDT, fmtG, fmtMoney, FUL_STATUS_TR, type Doc, type FulfilmentView, type KzDelivery, type useLive } from "../api.ts";
 import { Pager, usePager } from "../components/Pager.tsx";
+import { DocButtons, DocModal } from "./shared.tsx";
 
 type Live = ReturnType<typeof useLive>;
 
@@ -14,6 +15,7 @@ export function K6Delivery({ live }: { live: Live }) {
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState("");
   const [sel, setSel] = useState<KzDelivery | null>(null);
+  const [doc, setDoc] = useState<Doc | null>(null);
   const [form, setForm] = useState({ qty: "", address_ref: "ADR-77", insured_party_ref: "SIG-77" });
 
   const load = () => api.fulfilment().then(setV).catch((e) => setMsg(`Hata: ${e.message}`));
@@ -24,7 +26,7 @@ export function K6Delivery({ live }: { live: Live }) {
     try {
       const r = await fn();
       // kritik aksiyon: sunucu uygulamadı, ikinci onay bekliyor (K9'dan onaylanır)
-      setMsg(needsApproval(r) ? `${r.message}. Onay K9 Parametreler ekranından verilir (onay ${r.approval_id}).` : done);
+      setMsg(needsApproval(r) ? `${r.message}. Onay K11 Ayarlar ekranından verilir (onay ${r.approval_id}).` : done);
       await load(); live.refresh();
     }
     catch (e) { setMsg(`Hata: ${(e as Error).message}`); }
@@ -85,9 +87,9 @@ export function K6Delivery({ live }: { live: Live }) {
       <section className="card">
         <h2>Talepler</h2>
         <table>
-          <thead><tr><th>Zaman</th><th>Talep</th><th className="num">Gram</th><th>Durum</th><th>Lojistik teklifi</th><th>Takip</th><th>Burn</th><th>Aksiyon</th></tr></thead>
+          <thead><tr><th>Zaman</th><th>Talep</th><th className="num">Gram</th><th>Durum</th><th>Lojistik teklifi</th><th>Takip</th><th>Burn</th><th>Belgeler</th><th>Aksiyon</th></tr></thead>
           <tbody>
-            {(v?.deliveries.length ?? 0) === 0 && <tr><td colSpan={8} className="small">Teslimat talebi yok</td></tr>}
+            {(v?.deliveries.length ?? 0) === 0 && <tr><td colSpan={9} className="small">Teslimat talebi yok</td></tr>}
             {pItems.slice.map((d) => (
               <tr key={d.id}>
                 <td className="mono">{fmtDT(d.created_ts)}</td>
@@ -97,6 +99,9 @@ export function K6Delivery({ live }: { live: Live }) {
                 <td className="small">{d.quote ? `${d.quote.carrier} · ${fmtMoney(d.quote.amount_cents)} ${d.quote.ccy}` : ""}{d.customer_price_cents ? <><br /><span className="small">müşteriye aynen {fmtMoney(d.customer_price_cents)}</span></> : null}</td>
                 <td className="mono small">{d.tracking_no ?? ""}</td>
                 <td className="mono small">{d.burned ? d.burn_tx : d.escrowed ? "emanette" : ""}</td>
+                <td className="mono small">
+                  <DocButtons ids={[["Teklif", d.quote?.doc_id], ["Sevkiyat", d.shipping_doc_id], ["Teslimat", d.pod_doc_id]]} open={setDoc} />
+                </td>
                 <td>
                   <div className="row">
                     {d.status === "QUOTED" && <button className="primary" disabled={busy === d.id} onClick={() => act(d.id, () => api.deliveryApprove(d.id), `${d.id}: teklif onaylandı, masraf cari hesaba yazıldı.`)}>Teklifi onayla</button>}
@@ -111,6 +116,7 @@ export function K6Delivery({ live }: { live: Live }) {
         <Pager p={pItems} label="Talepler" />
       </section>
 
+      {doc && <DocModal doc={doc} onClose={() => setDoc(null)} />}
       {sel && (
         <section className="card" style={{ marginTop: 14 }}>
           <h2>{sel.id} zaman çizelgesi</h2>

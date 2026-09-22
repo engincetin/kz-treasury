@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, fmtDT, fmtG, fmtMoney, fmtTime, FLOW_TR, ORDER_TR, REJECT_TR, type Ccy, type CustomerOrder, type useLive } from "../api.ts";
 import { Pager, usePager } from "../components/Pager.tsx";
 
@@ -118,6 +119,7 @@ export function K3Orders({ live }: { live: Live }) {
         </section>
         <section className="card">
           <h2>Deneme emri (müşteri ekranı yerine)</h2>
+          <p className="small">Bu kutu müşteri emrini taklit eder: fiyat, marj ve komisyon müşteri tarafının kuralıyla hesaplanır, emir rafineriye birebir gider. Kendi envanterimiz için verilen emirler (hazine alım satımı) buradan değil, <Link to="/hazine">Hazine alım satımı</Link> ekranından gider: orada maker-checker ve ikinci onay vardır.</p>
           <div className="row">
             <select value={side} onChange={(e) => setSide(e.target.value as "BUY" | "SELL")}><option value="BUY">Müşteri AGOLD alır (stoktan alış)</option><option value="SELL">Müşteri AGOLD satar (stoktan satış)</option></select>
             <input style={{ width: 110 }} value={grams} onChange={(e) => setGrams(e.target.value)} /> <span className="small">g</span>

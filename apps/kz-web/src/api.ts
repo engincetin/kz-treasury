@@ -78,6 +78,7 @@ export interface KzDelivery {
   delivery_id?: string; status: string;
   quote?: { quote_id: string; carrier: string; amount_cents: number; ccy: string; valid_until: string; doc_id?: string };
   customer_price_cents?: number; tracking_no?: string; burned: boolean; burn_tx?: string; escrowed: boolean;
+  shipping_doc_id?: string; pod_doc_id?: string;
   created_ts: string; timeline: { ts: string; text: string }[];
 }
 export interface KzRefining {
@@ -85,6 +86,7 @@ export interface KzRefining {
   total_mg: number; address_ref: string; insured_party_ref: string; refining_id?: string; status: string;
   quote?: { quote_id: string; product_cents: number; logistics_cents: number; ccy: string; lead_time_days: number; valid_until: string; doc_id?: string };
   customer_price_cents?: number; tracking_no?: string; burned: boolean; burn_tx?: string; escrowed: boolean;
+  shipping_doc_id?: string; pod_doc_id?: string;
   created_ts: string; timeline: { ts: string; text: string }[];
 }
 export interface FulfilmentView {
@@ -126,6 +128,7 @@ export interface Status {
 export interface EventLog { event_id: string; type: string; ts: string; received_ts: string; seq?: number; summary: string }
 export interface Doc { meta: { doc_id: string; type: string; related_id: string; hash: string; signature: string; created_ts: string; sent_ts?: string; hash_ok?: boolean; signature_ok?: boolean | null }; content: Record<string, unknown> }
 /** K12: belgenin Kanzasset kopyasının künyesi (içerik ayrı çekilir). */
+export interface DocumentsView { count: number; signature_checked: boolean; last_sync_ts: string | null; auto_sync_minutes: number; items: KzDocumentRow[] }
 export interface KzDocumentRow { doc_id: string; type: string; related_id: string; hash: string; signature: string; created_ts: string; received_ts: string; source: string; hash_ok: boolean; signature_ok: boolean | null }
 export const DOC_TYPE_TR: Record<string, string> = { ALLOCATION_CERTIFICATE: "Tahsis Belgesi", VAULT_IN_SLIP: "Kasa Giriş Fişi", VAULT_OUT_SLIP: "Kasa Çıkış Fişi", LOGISTICS_QUOTE: "Lojistik Teklifi", REFINING_QUOTE: "Rafinasyon Teklifi", SHIPPING_SLIP: "Sevkiyat Fişi", DELIVERY_RECORD: "Teslimat Kaydı", VAULT_STATEMENT: "Günlük Kasa Ekstresi", CURRENT_ACCOUNT_STATEMENT: "Cari Hesap Ekstresi", SETTLEMENT_STATEMENT: "Mahsuplaşma Ekstresi" };
 
@@ -153,7 +156,7 @@ export const api = {
   events: () => req<EventLog[]>("/api/events"),
   document: (id: string) => req<Doc>(`/api/documents/${encodeURIComponent(id)}`),
   // K12 belgeler: kendi kopyamız
-  documents: (q: { type?: string; text?: string } = {}) => req<{ count: number; signature_checked: boolean; items: KzDocumentRow[] }>(`/api/documents?${new URLSearchParams(Object.fromEntries(Object.entries({ type: q.type, q: q.text }).filter(([, v]) => v)) as Record<string, string>)}`).then((r) => r.items),
+  documents: (q: { type?: string; text?: string } = {}) => req<DocumentsView>(`/api/documents?${new URLSearchParams(Object.fromEntries(Object.entries({ type: q.type, q: q.text }).filter(([, v]) => v)) as Record<string, string>)}`),
   syncDocuments: () => req<{ fetched: number; failed: string[]; count: number }>("/api/documents/sync", { method: "POST", body: "{}" }),
   // K4 kasa talimatları
   vault: (limit = 200) => req<VaultView>(`/api/vault?limit=${limit}`),

@@ -1,22 +1,24 @@
 import { useEffect, useState } from "react";
-import { api, fmtDT, DOC_TYPE_TR, type KzDocumentRow, type Doc, type useLive } from "../api.ts";
+import { api, fmtDT, DOC_TYPE_TR, type DocumentsView, type KzDocumentRow, type Doc, type useLive } from "../api.ts";
 import { Pager, usePager } from "../components/Pager.tsx";
+import { DocModal } from "./shared.tsx";
 
 type Live = ReturnType<typeof useLive>;
 
 /**
- * K12 Belgeler: rafineri tarafındaki R9'un karşılığı.
+ * K9 Belgeler: rafineri tarafındaki R9'un karşılığı.
  * Rafinerinin ürettiği her belgenin Kanzasset kopyası: olayla numara gelir, belge çekilir,
  * özeti yeniden hesaplanır, saklanır. İki taraf aynı belgenin kendi kopyasına sahiptir.
  */
-export function K12Documents({ live }: { live: Live }) {
+export function K9Documents({ live }: { live: Live }) {
   const [rows, setRows] = useState<KzDocumentRow[]>([]);
+  const [info, setInfo] = useState<DocumentsView | null>(null);
   const [q, setQ] = useState({ type: "", text: "" });
   const [doc, setDoc] = useState<Doc | null>(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const load = () => api.documents().then(setRows).catch((e) => setMsg(`Hata: ${(e as Error).message}`));
+  const load = () => api.documents().then((d) => { setRows(d.items); setInfo(d); }).catch((e) => setMsg(`Hata: ${(e as Error).message}`));
   useEffect(() => { void load(); }, [live.version]);
 
   const types = [...new Set(rows.map((r) => r.type))];
@@ -26,16 +28,16 @@ export function K12Documents({ live }: { live: Live }) {
 
   return (
     <div>
-      <span className="tag">K12</span>
+      <span className="tag">K9</span>
       <h1>Belgeler</h1>
       <p className="sub">Rafinerinin ürettiği belgelerin Kanzasset'teki kopyası: Tahsis Belgesi, Kasa Giriş ve Çıkış Fişi, Lojistik ve Rafinasyon Teklifi, Sevkiyat Fişi, Teslimat Kaydı, ekstreler. Belge numarası olayla gelir, belge çekilir, özeti yeniden hesaplanıp karşılaştırılır ve burada saklanır. Denetimde tek tarafa güvenmek gerekmez.</p>
 
       <div className="grid c3" style={{ marginBottom: 14 }}>
         <div className="card kpi"><h2>Saklanan belge</h2><div className="n">{rows.length}</div><div className="small">rafineriden alınan kopya</div></div>
-        <div className="card kpi"><h2>Özet doğrulaması</h2><div className="n" style={{ color: bad > 0 ? "var(--bad)" : "var(--ok)" }}>{bad === 0 ? "tümü tutuyor" : `${bad} tutmuyor`}</div><div className="small">sha256(içerik) = belge özeti</div></div>
+        <div className="card kpi"><h2>Özet doğrulaması</h2><div className="n" style={{ color: bad > 0 ? "var(--bad)" : "var(--ok)" }}>{bad === 0 ? "tümü tutuyor" : `${bad} tutmuyor`}</div><div className="small">sha256(içerik) = belge özeti{info ? ` · ${info.signature_checked ? "imza da doğrulanıyor" : "imza anahtarı verilmedi"}` : ""}</div></div>
         <div className="card">
-          <h2>Eşitle</h2>
-          <p className="small">Emir, kasa, teslimat, rafinasyon ve mahsuplaşma kayıtlarındaki bütün belge numaraları taranır, eksik kopyalar rafineriden çekilir.</p>
+          <h2>Eşitleme</h2>
+          <p className="small">Belge numarası olayla gelince kopya kendiliğinden çekilir. Ayrıca {info?.auto_sync_minutes ? `${info.auto_sync_minutes} dakikada bir` : "düzenli olarak"} bütün kayıtlar taranır, eksik kalan varsa alınır. Son eşitleme: {info?.last_sync_ts ? fmtDT(info.last_sync_ts) : "henüz yapılmadı"}.</p>
           <button className="primary" disabled={busy} onClick={async () => { setBusy(true); try { const r = await api.syncDocuments(); setMsg(`${r.fetched} belge çekildi${r.failed.length ? `, ${r.failed.length} çekilemedi` : ""}.`); await load(); } catch (e) { setMsg(`Hata: ${(e as Error).message}`); } finally { setBusy(false); } }}>Belgeleri eşitle</button>
         </div>
       </div>
@@ -80,31 +82,7 @@ export function K12Documents({ live }: { live: Live }) {
         <Pager p={p} label="Belgeler" />
       </section>
 
-      {doc && (
-        <div className="modal-bg" onClick={() => setDoc(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <h3>{DOC_TYPE_TR[doc.meta.type] ?? doc.meta.type} · {doc.meta.doc_id}</h3>
-            <div className="kv">
-              <span className="k">İlgili kayıt</span><span className="mono small">{doc.meta.related_id}</span>
-              <span className="k">Rafineri tarihi</span><span className="mono small">{fmtDT(doc.meta.created_ts)}</span>
-              <span className="k">Özet (sha256)</span><span className="mono small" style={{ wordBreak: "break-all" }}>{doc.meta.hash}</span>
-              <span className="k">İmza</span><span className="mono small" style={{ wordBreak: "break-all" }}>{doc.meta.signature}</span>
-            </div>
-            <h2 style={{ marginTop: 12 }}>İçerik</h2>
-            <table>
-              <tbody>
-                {Object.entries(doc.content).map(([k, v]) => (
-                  <tr key={k}><td className="small" style={{ width: 160 }}>{k}</td><td className="mono small" style={{ wordBreak: "break-all" }}>{typeof v === "object" ? JSON.stringify(v) : String(v)}</td></tr>
-                ))}
-              </tbody>
-            </table>
-            <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
-              <a className="pill accent" href={`/api/documents/${encodeURIComponent(doc.meta.doc_id)}/pdf`} target="_blank" rel="noreferrer" style={{ padding: "8px 13px" }}>PDF</a>
-              <button onClick={() => setDoc(null)}>Kapat</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {doc && <DocModal doc={doc} onClose={() => setDoc(null)} />}
     </div>
   );
 }

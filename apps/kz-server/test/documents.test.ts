@@ -1,5 +1,5 @@
 /**
- * K12 Belgeler: rafineri belgesinin Kanzasset kopyası.
+ * K9 Belgeler: rafineri belgesinin Kanzasset kopyası.
  * İki taraf da kendi kaydını tutar; kopya alınırken özet yeniden hesaplanır, anahtar varsa imza doğrulanır.
  */
 import { test } from "node:test";
@@ -25,6 +25,12 @@ test("docIdsIn: olay verisindeki belge numaralarını iç içe alanlardan toplar
     note: "TB-20260922-0009-ZZZZ", // alan adı belge alanı değil: alınmaz
   });
   assert.deepEqual(ids.sort(), ["LT-20260922-0002-C3D4", "SF-20260922-0003-E5F6", "TB-20260922-0001-A1B2"]);
+});
+
+test("docIdsIn scanText: eski kayıtlarda zaman çizelgesi metnindeki numara da bulunur", () => {
+  const state = { deliveries: [{ id: "dlv_1", timeline: [{ ts: "", text: "hazır · Sevkiyat Fişi SF-20260922-0010-4GU6 · kasada −5,000" }] }] };
+  assert.deepEqual(docIdsIn(state), [], "varsayılanda metne bakılmaz: canlı toplama yalnız belge alanlarına bakar");
+  assert.deepEqual(docIdsIn(state, { scanText: true }), ["SF-20260922-0010-4GU6"]);
 });
 
 test("verifyDocument: özet her zaman, imza yalnız anahtar verilmişse bakılır", () => {

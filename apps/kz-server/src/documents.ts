@@ -1,5 +1,5 @@
 /**
- * Belgeler (K12): rafinerinin ürettiği belgelerin Kanzasset'teki kopyası.
+ * Belgeler (K9): rafinerinin ürettiği belgelerin Kanzasset'teki kopyası.
  *
  * Rafineri her belgeyi (Tahsis Belgesi, Kasa Giriş / Çıkış Fişi, teklifler, Sevkiyat Fişi,
  * Teslimat Kaydı, ekstreler) kendinde tutar ve olayla belge numarasını gönderir. Kanzasset
@@ -49,17 +49,31 @@ export function verifyDocument(doc: Document, docKey?: string | null): { hash_ok
 
 /** Olay verisinde belge numarası taşıyan alanlar. */
 const DOC_FIELDS = ["doc_id", "shipping_doc_id", "pod_doc_id", "quote_doc_id", "statement_doc_id"];
-const looksLikeDocId = (v: unknown): v is string => typeof v === "string" && /^[A-Z]{2,3}-\d{8}-\d{4}-[A-Z0-9]{4}$/.test(v);
+const DOC_ID = "[A-Z]{2,3}-\\d{8}-\\d{4}-[A-Z0-9]{4}";
+const looksLikeDocId = (v: unknown): v is string => typeof v === "string" && new RegExp(`^${DOC_ID}$`).test(v);
 
-/** Olay verisini gezer, belge numarası olan her alanı toplar (iç içe nesneler dahil). */
-export function docIdsIn(data: unknown, depth = 0): string[] {
-  if (!data || typeof data !== "object" || depth > 4) return [];
+/**
+ * Belge numaralarını toplar.
+ *
+ * Varsayılan: yalnız belge alanları (olay gövdesinde `doc_id`, `shipping_doc_id`, ...). Canlı
+ * toplama bunu kullanır, rastgele metne bakmaz.
+ *
+ * `scanText` ile metin içindeki numaralar da alınır: geriye dönük eşitlemede, belge numarası
+ * yalnız zaman çizelgesi satırında kalmış eski kayıtlar da bulunsun diye.
+ */
+export function docIdsIn(data: unknown, opt: { scanText?: boolean } = {}): string[] {
   const out: string[] = [];
-  for (const [k, v] of Object.entries(data as Record<string, unknown>)) {
-    if ((DOC_FIELDS.includes(k) || k === "doc_id") && looksLikeDocId(v)) out.push(v);
-    else if (k === "allocation_certificate" && v && typeof v === "object" && looksLikeDocId((v as { doc_id?: unknown }).doc_id)) out.push((v as { doc_id: string }).doc_id);
-    else if (v && typeof v === "object") out.push(...docIdsIn(v, depth + 1));
-  }
+  const inText = new RegExp(DOC_ID, "g");
+  const walk = (v: unknown, depth: number): void => {
+    if (!v || typeof v !== "object" || depth > 8) return;
+    for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
+      if (typeof val === "string") {
+        if (DOC_FIELDS.includes(k) && looksLikeDocId(val)) out.push(val);
+        else if (opt.scanText) out.push(...(val.match(inText) ?? []));
+      } else if (val && typeof val === "object") walk(val, depth + 1);
+    }
+  };
+  walk(data, 0);
   return [...new Set(out)];
 }
 

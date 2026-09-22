@@ -4,34 +4,34 @@ import { api, ageSec, currentUser, fmtG, fmtMoney, KZ_USERS, setCurrentUser, use
 import { Icon, NavIcon, useSidebar, useTheme } from "./ui.tsx";
 import { LogsPage } from "./pages/Logs.tsx";
 import { K1Overview } from "./pages/K1Overview.tsx";
-import { K11Price } from "./pages/K11Price.tsx";
-import { K12Documents } from "./pages/K12Documents.tsx";
-import { K2Accounts } from "./pages/K2Accounts.tsx";
+import { K2Price } from "./pages/K2Price.tsx";
+import { K9Documents } from "./pages/K9Documents.tsx";
+import { K5Accounts } from "./pages/K5Accounts.tsx";
 import { K3Orders } from "./pages/K3Orders.tsx";
 import { K4Vault } from "./pages/K4Vault.tsx";
-import { K5Treasury } from "./pages/K5Treasury.tsx";
+import { K12Treasury } from "./pages/K12Treasury.tsx";
 import { K6Delivery } from "./pages/K6Delivery.tsx";
 import { K7Refining } from "./pages/K7Refining.tsx";
 import { K8Settlement } from "./pages/K8Settlement.tsx";
-import { K9Params } from "./pages/K9Params.tsx";
+import { K11Settings } from "./pages/K11Settings.tsx";
 
 /**
  * Menü rafineri paneliyle aynı sırada ve aynı adlarla: iki ekip aynı dili konuşur.
- * Kanzasset'e özgü tek ekran Hazine alım satımı (K5). Kodlar yalnız sayfa başlığında görünür.
+ * Kanzasset'e özgü tek ekran Hazine alım satımı (K12); numarası sonda, menüdeki yeri hesapların yanı. Kodlar yalnız sayfa başlığında görünür.
  */
 const SCREENS = [
   { code: "K1", path: "/", title: "Genel bakış", icon: "overview" },
-  { code: "K11", path: "/fiyat", title: "Fiyat", icon: "price" },
+  { code: "K2", path: "/fiyat", title: "Fiyat", icon: "price" },
   { code: "K3", path: "/emirler", title: "Emirler", icon: "orders" },
   { code: "K4", path: "/kasa", title: "Kasa hesabı", icon: "vault" },
-  { code: "K2", path: "/hesaplar", title: "Hesaplar", icon: "account" },
-  { code: "K5", path: "/hazine", title: "Hazine alım satımı", icon: "treasury" },
+  { code: "K5", path: "/cari", title: "Cari hesap", icon: "account" },
+  { code: "K12", path: "/hazine", title: "Hazine alım satımı", icon: "treasury" },
   { code: "K6", path: "/teslimat", title: "Fiziksel teslimat", icon: "delivery" },
   { code: "K7", path: "/rafinasyon", title: "Rafinasyon", icon: "refining" },
   { code: "K8", path: "/mahsuplasma", title: "Mahsuplaşma", icon: "settlement" },
-  { code: "K12", path: "/belgeler", title: "Belgeler", icon: "documents" },
+  { code: "K9", path: "/belgeler", title: "Belgeler", icon: "documents" },
   { code: "K10", path: "/kayitlar", title: "Kayıtlar", icon: "logs" },
-  { code: "K9", path: "/ayarlar", title: "Ayarlar", icon: "settings" },
+  { code: "K11", path: "/ayarlar", title: "Ayarlar", icon: "settings" },
 ];
 
 export function App() {
@@ -63,17 +63,18 @@ export function App() {
       <main className="main">
         <Routes>
           <Route path="/" element={<K1Overview live={live} />} />
-          <Route path="/fiyat" element={<K11Price live={live} />} />
-          <Route path="/belgeler" element={<K12Documents live={live} />} />
-          <Route path="/hesaplar" element={<K2Accounts live={live} />} />
+          <Route path="/fiyat" element={<K2Price live={live} />} />
+          <Route path="/belgeler" element={<K9Documents live={live} />} />
+          <Route path="/cari" element={<K5Accounts live={live} />} />
+          <Route path="/hesaplar" element={<K5Accounts live={live} />} />
           <Route path="/emirler" element={<K3Orders live={live} />} />
           <Route path="/kasa" element={<K4Vault live={live} />} />
-          <Route path="/hazine" element={<K5Treasury live={live} />} />
+          <Route path="/hazine" element={<K12Treasury live={live} />} />
           <Route path="/teslimat" element={<K6Delivery live={live} />} />
           <Route path="/rafinasyon" element={<K7Refining live={live} />} />
           <Route path="/mahsuplasma" element={<K8Settlement live={live} />} />
-          <Route path="/ayarlar" element={<K9Params live={live} />} />
-          <Route path="/parametreler" element={<K9Params live={live} />} />
+          <Route path="/ayarlar" element={<K11Settings live={live} />} />
+          <Route path="/parametreler" element={<K11Settings live={live} />} />
           <Route path="/kayitlar" element={<LogsPage endpoint="/api/logs" tag="K10" title="Kayıtlar" />} />
         </Routes>
       </main>
@@ -152,16 +153,16 @@ function TopBar({ s, sse, refresh, onMenu }: { s: Status | null; sse: boolean; r
 
 /** Bildirimi ilgili ekrana bağlar: "okundu" demek yerine işi yapılacak yere götürür. */
 function noticeRoute(type: string): { path: string; label: string } | null {
-  if (type.startsWith("approval")) return { path: "/ayarlar", label: "Onaya git (K9 Ayarlar)" };
-  if (type.startsWith("account") || type.startsWith("debug")) return { path: "/hesaplar", label: "Hesaplara git (K2)" };
+  if (type.startsWith("approval")) return { path: "/ayarlar", label: "Onaya git (K11 Ayarlar)" };
+  if (type.startsWith("account") || type.startsWith("debug")) return { path: "/cari", label: "Cari hesaba git (K5)" };
   if (type.startsWith("mint") || type.startsWith("vault") || type.startsWith("burn")) return { path: "/kasa", label: "Kasa hesabına git (K4)" };
   if (type.startsWith("settlement")) return { path: "/mahsuplasma", label: "Mahsuplaşmaya git (K8)" };
   if (type.startsWith("delivery")) return { path: "/teslimat", label: "Teslimata git (K6)" };
   if (type.startsWith("refining") || type.startsWith("catalog")) return { path: "/rafinasyon", label: "Rafinasyona git (K7)" };
-  if (type.startsWith("treasury")) return { path: "/hazine", label: "Hazine alım satımına git (K5)" };
+  if (type.startsWith("treasury")) return { path: "/hazine", label: "Hazine alım satımına git (K12)" };
   if (type.startsWith("order")) return { path: "/emirler", label: "Emirlere git (K3)" };
-  if (type.startsWith("trading") || type.startsWith("socket") || type.startsWith("price")) return { path: "/fiyat", label: "Fiyata git (K11)" };
-  if (type.startsWith("document")) return { path: "/belgeler", label: "Belgelere git (K12)" };
+  if (type.startsWith("trading") || type.startsWith("socket") || type.startsWith("price")) return { path: "/fiyat", label: "Fiyata git (K2)" };
+  if (type.startsWith("document")) return { path: "/belgeler", label: "Belgelere git (K9)" };
   return null;
 }
 

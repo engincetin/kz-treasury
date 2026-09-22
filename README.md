@@ -66,7 +66,7 @@ Docker olmadan, sunum için üç komut: `docs/DEMO.md` → "Sabah başlatma".
 | `KZ_API_KEY` / `KZ_API_SECRET` | `kz-dev-key` / `kz-dev-secret` | rafinerinin verdiği kimlik |
 | `KZ_DATA_DIR` | `apps/kz-server/data` | kalıcı durum (KZ kaydı, emirler, bildirimler, olaylar; JSON) |
 | `KZ_OPENING_MG` | `0` | açılış devri: kasada duran gram (demo `20000000`; AMR `VAULT_OPENING_MG` ile aynı) |
-| `AMR_DOC_KEY` | boş | rafinerinin belge imza anahtarı (`doc.sign_key`); verilirse K12 Belgeler'de imza da doğrulanır, verilmezse yalnız sha256 özeti |
+| `AMR_DOC_KEY` | boş | rafinerinin belge imza anahtarı (`doc.sign_key`); verilirse K9 Belgeler'de imza da doğrulanır, verilmezse yalnız sha256 özeti |
 | `KZ_DEMO` | `1` | `0` ise demo ucu (`/api/debug/record-skew`) kapanır |
 | `LOG_LEVEL` | `info` | |
 

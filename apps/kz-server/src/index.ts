@@ -42,6 +42,8 @@ const DATA_DIR = process.env.KZ_DATA_DIR ?? resolve(import.meta.dirname, "../dat
 const OPENING_MG = Number(process.env.KZ_OPENING_MG ?? 0);
 /** Rafinerinin belge imza anahtarı (doc.sign_key). Verilirse belge imzaları da doğrulanır; verilmezse yalnız özet. */
 const AMR_DOC_KEY = process.env.AMR_DOC_KEY || null;
+/** Belge eşitleme sıklığı (dakika). 0 kapatır; canlı toplama her hâlükârda çalışır. */
+const DOC_SYNC_MIN = Number(process.env.KZ_DOC_SYNC_MIN ?? 10);
 
 const bus = new EventEmitter();
 bus.setMaxListeners(100);
@@ -57,7 +59,7 @@ interface State {
   settlements: KzSettlement[];
   audit: AuditEntry[]; auditId: number; approvals: ApprovalRequest[]; approvalId: number;
   requests: RequestLogRow[]; requestId: number; log: RequestLogParams;
-  documents: KzDocument[];
+  documents: KzDocument[]; docSyncTs: string | null;
 }
 const store = new JsonStore<State>(resolve(DATA_DIR, "kz-state.json"), () => ({
   record: emptyRecord(OPENING_MG), orders: [], notices: [], noticeId: 0, events: [], pricing: { ...DEFAULT_PRICING }, orderParams: { ...DEFAULT_ORDER_PARAMS }, market: { manualStop: false, manualReason: null },
@@ -65,7 +67,7 @@ const store = new JsonStore<State>(resolve(DATA_DIR, "kz-state.json"), () => ({
   deliveries: [], refinings: [], catalog: null, fulfilment: { ...DEFAULT_FULFILMENT }, settlements: [],
   audit: [], auditId: 0, approvals: [], approvalId: 0,
   requests: [], requestId: 0, log: { ...DEFAULT_LOG_PARAMS },
-  documents: [],
+  documents: [], docSyncTs: null,
 }));
 const S = store.data;
 const ticks: { seq: number; ts: string; tradable: boolean; prices: unknown }[] = [];
@@ -92,16 +94,48 @@ const notify = (type: string, title: string, body?: string) => {
   store.save();
   bus.emit("event", { kind: "notice", ...n });
 };
-const changed = () => { store.save(); bus.emit("event", { kind: "status", status: status() }); };
+const changed = () => { store.save(); bus.emit("event", { kind: "status", status: status() }); collectDocsSoon(); };
+
+/**
+ * Durum değiştikten kısa süre sonra yeni belge numaralarına bakar.
+ *
+ * Belgelerin çoğu olayla gelir ve orada canlı çekilir; bir kısmı ise isteğin kendi cevabında gelir
+ * (emir cevabındaki Tahsis Belgesi gibi). Bu kısa gecikmeli tarama onları da alır, iki tarafın
+ * belge sayısı birbirini bekletmez. Düzenli tam eşitleme ayrıca çalışır.
+ */
+let collectTimer: NodeJS.Timeout | null = null;
+function collectDocsSoon() {
+  if (collectTimer) return;
+  collectTimer = setTimeout(() => {
+    collectTimer = null;
+    const ids = docIdsIn({ orders: S.orders.slice(0, 10), vault: S.vault.slice(0, 10), deliveries: S.deliveries.slice(0, 10), refinings: S.refinings.slice(0, 10), settlements: S.settlements.slice(0, 3) });
+    void documents.sync(ids).catch(() => {});
+  }, 1500);
+  collectTimer.unref();
+}
 
 // İstek günlüğü (VARA kanıtı): rafineriye giden ve rafineriden gelen her çağrı.
 const reqLog = new RequestLog(S, () => store.save());
 amr.onCall = (c) => reqLog.outgoing(c.method, c.path, c.status, c.durationMs, c.body, c.error);
 
-// Belgeler (K12): rafinerinin ürettiği belgelerin Kanzasset kopyası, özet ve imza doğrulamasıyla.
+// Belgeler (K9): rafinerinin ürettiği belgelerin Kanzasset kopyası, özet ve imza doğrulamasıyla.
 const documents = new DocumentDesk(S, { amr, docKey: AMR_DOC_KEY, save: () => store.save(), notify });
 
-// Denetim günlüğü ve ikinci onay (K9). Aktör X-User başlığından gelir.
+/**
+ * Belge eşitleme: kayıtlarımızdaki bütün belge numaralarını tarar, kopyası olmayanı rafineriden çeker.
+ * Olayla gelen belge zaten canlı çekilir; bu tarama olay kaçtığında ya da sunucu kapalıyken geçen
+ * belgeleri toparlar. Elle "Belgeleri eşitle" de aynı işi yapar.
+ */
+async function syncDocuments(): Promise<{ fetched: number; failed: string[] }> {
+  // metin de taranır: eski kayıtlarda belge numarası yalnız zaman çizelgesi satırında kalmış olabilir
+  const known = docIdsIn({ orders: S.orders, vault: S.vault, deliveries: S.deliveries, refinings: S.refinings, settlements: S.settlements, events: S.events }, { scanText: true });
+  const r = await documents.sync(known);
+  S.docSyncTs = new Date().toISOString();
+  store.save();
+  return r;
+}
+
+// Denetim günlüğü ve ikinci onay (K11 Ayarlar). Aktör X-User başlığından gelir.
 const auditDesk = new AuditDesk(S, { save: () => store.save(), notify });
 const actorOf = (req: { headers: Record<string, unknown> }): string => String(req.headers["x-user"] ?? "").trim() || "kanzasset";
 /** Elle aksiyonlar günlüğe yazılır; sonra ekranlara haber verilir. */
@@ -134,7 +168,7 @@ const desk = new OrderDesk({
   vault: () => vault,
 }, S.orders);
 
-// Hazine alım satımı (K5): maker-checker, son onaycı canlı fiyatla gönderir.
+// Hazine alım satımı (K12): maker-checker, son onaycı canlı fiyatla gönderir.
 const treasury = new TreasuryDesk({
   amr,
   priceState: () => client.state,
@@ -591,10 +625,12 @@ if (process.env.KZ_DEMO !== "0") {
 app.get<{ Querystring: { from?: string; to?: string } }>("/api/record/statement", async (req, reply) => {
   try { return await amr.statement(req.query.from, req.query.to); } catch (e) { return reply.code(502).send({ error: (e as Error).message }); }
 });
-// ---- belgeler (K12): kendi kopyamız ----
+// ---- belgeler (K9): kendi kopyamız ----
 app.get<{ Querystring: { type?: string; q?: string; limit?: string } }>("/api/documents", async (req) => ({
   count: documents.count(),
   signature_checked: AMR_DOC_KEY !== null,
+  last_sync_ts: S.docSyncTs,
+  auto_sync_minutes: DOC_SYNC_MIN,
   items: documents.list({ type: req.query.type, text: req.query.q, limit: Number(req.query.limit ?? 500) }),
 }));
 /** Belgeyi kendi kaydımızdan verir; yoksa rafineriden çeker, doğrular ve saklar. */
@@ -618,8 +654,7 @@ app.get<{ Params: { id: string } }>("/api/documents/:id/pdf", async (req, reply)
 });
 /** Geriye dönük eşitleme: emirler, kasa talimatları, teslimat / rafinasyon ve mahsuplaşma kayıtlarındaki belge numaraları taranır. */
 app.post("/api/documents/sync", async (req) => {
-  const known = docIdsIn({ orders: S.orders, vault: S.vault, deliveries: S.deliveries, refinings: S.refinings, settlements: S.settlements, events: S.events });
-  const r = await documents.sync(known);
+  const r = await syncDocuments();
   return logged(req, "documents.sync", `${r.fetched} belge çekildi, ${r.failed.length} çekilemedi`, { ...r, count: documents.count() });
 });
 
@@ -740,5 +775,12 @@ if (process.env.KZ_ROUTES_DUMP) {
 }
 
 client.start();
+// Belgeler kendiliğinden eşitlenir: açılıştan kısa süre sonra bir kez, sonra DOC_SYNC_MIN dakikada bir.
+if (DOC_SYNC_MIN > 0) {
+  const tick = () => { void syncDocuments().catch((e) => app.log.warn(`belge eşitleme: ${(e as Error).message}`)); };
+  setTimeout(tick, 15_000).unref();
+  setInterval(tick, DOC_SYNC_MIN * 60_000).unref();
+}
+
 await app.listen({ port: PORT, host: "0.0.0.0" });
 app.log.info(`Kanzasset çekirdeği: http://localhost:${PORT} · rafineri soketi ${AMR_WS_URL} · REST ${AMR_HTTP_URL} · API dokümanı /docs`);

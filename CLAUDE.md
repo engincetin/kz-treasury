@@ -5,7 +5,7 @@ Bu repo Kanzasset (KZ) tarafındaki hazine çekirdeğidir. Rafineri tarafı `amr
 ## Kaynak dokümanlar (önce bunlara bak)
 
 - `docs/KZ_AMR_Akislar.md`: rafineri ile Kanzasset arasındaki akışlar ve rakamlı örnekler.
-- `docs/KZ_AMR_Sistemi.md`: ekranlar (K1..K9 bu repo, R1..R10 amr-app), API, soket protokolü, veri modeli, kontroller, sprint planı.
+- `docs/KZ_AMR_Sistemi.md`: ekranlar (K1..K12 bu repo, R1..R11 amr-app), API, soket protokolü, veri modeli, kontroller, sprint planı.
 - `docs/KARARLAR.md`: tasarımda karşılığı olmayan kararlar. Tasarımda olmayan bir karar verince buraya tek satır yazılır.
 - `docs/DEMO.md` (sunum), `docs/KULLANIM_KILAVUZU.md` (personel), `docs/TEST_RAPORU.md` (kapsam ve bilinen eksikler).
 - Akışlar ile kod çelişirse akışlar kazanır; önce dokümanı düzelt, sonra kodu.
@@ -60,4 +60,4 @@ Bu repo Kanzasset (KZ) tarafındaki hazine çekirdeğidir. Rafineri tarafı `amr
 
 ## Sprint durumu
 
-Sprint 1'den 6'ya tamam: soket istemcisi, fiyatlama, durdur / başlat, bildirimler, SSE, REST istemcisi (HMAC), emir masası, KZ kaydı ve eşleşme, olay alımı, kasa talimatları ve mint / burn eşlemesi, büyük alış / satış, hazine alım satımı, fiziksel teslimat ve rafinasyon, mahsuplaşma, parametreler; ekranlar K1'den K9'a hepsi. Teslim paketi hazır: `npm run demo` ile S0..S9 senaryoları, sunum senaryosu, kullanım kılavuzu, Docker ve test raporu. Plan `README.md` sonunda.
+Sprint 1'den 6'ya tamam: soket istemcisi, fiyatlama, durdur / başlat, bildirimler, SSE, REST istemcisi (HMAC), emir masası, KZ kaydı ve eşleşme, olay alımı, kasa talimatları ve mint / burn eşlemesi, büyük alış / satış, hazine alım satımı, fiziksel teslimat ve rafinasyon, mahsuplaşma, parametreler; ekranlar K1'den K12'ye hepsi. Teslim paketi hazır: `npm run demo` ile S0..S9 senaryoları, sunum senaryosu, kullanım kılavuzu, Docker ve test raporu. Plan `README.md` sonunda.

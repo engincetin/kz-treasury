@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { api, fmtDT, fmtG, fmtMoney, FUL_STATUS_TR, type FulfilmentView, type KzRefining, type useLive } from "../api.ts";
+import { api, fmtDT, fmtG, fmtMoney, FUL_STATUS_TR, type Doc, type FulfilmentView, type KzRefining, type useLive } from "../api.ts";
 import { Pager, usePager } from "../components/Pager.tsx";
+import { DocButtons, DocModal } from "./shared.tsx";
 
 type Live = ReturnType<typeof useLive>;
 
@@ -15,6 +16,7 @@ export function K7Refining({ live }: { live: Live }) {
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState("");
   const [sel, setSel] = useState<KzRefining | null>(null);
+  const [doc, setDoc] = useState<Doc | null>(null);
   const [cart, setCart] = useState<Record<string, number>>({});
 
   const load = () => api.fulfilment().then(setV).catch((e) => setMsg(`Hata: ${e.message}`));
@@ -89,9 +91,9 @@ export function K7Refining({ live }: { live: Live }) {
       <section className="card">
         <h2>Talepler</h2>
         <table>
-          <thead><tr><th>Zaman</th><th>Talep</th><th>Kalemler</th><th className="num">Saf gram</th><th>Durum</th><th>Teklif</th><th className="num">Müşteri fiyatı</th><th>Burn</th><th>Aksiyon</th></tr></thead>
+          <thead><tr><th>Zaman</th><th>Talep</th><th>Kalemler</th><th className="num">Saf gram</th><th>Durum</th><th>Teklif</th><th className="num">Müşteri fiyatı</th><th>Burn</th><th>Belgeler</th><th>Aksiyon</th></tr></thead>
           <tbody>
-            {(v?.refinings.length ?? 0) === 0 && <tr><td colSpan={9} className="small">Rafinasyon talebi yok</td></tr>}
+            {(v?.refinings.length ?? 0) === 0 && <tr><td colSpan={10} className="small">Rafinasyon talebi yok</td></tr>}
             {pItems.slice.map((r) => (
               <tr key={r.id}>
                 <td className="mono">{fmtDT(r.created_ts)}</td>
@@ -102,6 +104,9 @@ export function K7Refining({ live }: { live: Live }) {
                 <td className="small">{r.quote ? `${fmtMoney(r.quote.product_cents)} + ${fmtMoney(r.quote.logistics_cents)} ${r.quote.ccy} · ${r.quote.lead_time_days} gün` : ""}</td>
                 <td className="num mono">{r.customer_price_cents ? fmtMoney(r.customer_price_cents) : ""}</td>
                 <td className="mono small">{r.burned ? r.burn_tx : r.escrowed ? "emanette" : ""}</td>
+                <td className="mono small">
+                  <DocButtons ids={[["Teklif", r.quote?.doc_id], ["Sevkiyat", r.shipping_doc_id], ["Teslimat", r.pod_doc_id]]} open={setDoc} />
+                </td>
                 <td>
                   <div className="row">
                     {r.status === "QUOTED" && <button className="primary" disabled={busy === r.id} onClick={() => act(r.id, () => api.refiningApprove(r.id), `${r.id}: teklif onaylandı.`)}>Teklifi onayla</button>}
@@ -116,6 +121,7 @@ export function K7Refining({ live }: { live: Live }) {
         <Pager p={pItems} label="Talepler" />
       </section>
 
+      {doc && <DocModal doc={doc} onClose={() => setDoc(null)} />}
       {sel && (
         <section className="card" style={{ marginTop: 14 }}>
           <h2>{sel.id} zaman çizelgesi</h2>

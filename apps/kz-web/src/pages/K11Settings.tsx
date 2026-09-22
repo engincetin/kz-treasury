@@ -4,13 +4,13 @@ import { api, currentUser, needsApproval, type ApprovalRequest, type AuditEntry,
 type Live = ReturnType<typeof useLive>;
 
 /**
- * K9 Ayarlar: rafineri tarafındaki R10'un karşılığı.
+ * K11 Ayarlar: rafineri tarafındaki R10'un karşılığı.
  * Bağlantı (rafineri soketi ve REST adresi) burada görünür; iş kurallarının değerleri: stok bandı ve hedef, mint politikası, kasaya konuluyor tavanı,
  * onay matrisi, kayma payı, emir zaman sınırı, fiyatlama, burn anı.
  * Değişiklik ikinci onay ister ve günlüğe yazılır. Kural sunucudadır: istek 202 ile onay
  * numarası döner, onay farklı bir kullanıcıdan gelmezse değişiklik uygulanmaz.
  */
-export function K9Params({ live }: { live: Live }) {
+export function K11Settings({ live }: { live: Live }) {
   const s = live.status;
   const [stock, setStock] = useState<StockParams | null>(null);
   const [pricing, setPricing] = useState({ marginBps: 30, marginCapBps: 100, commissionBps: 15 });
@@ -74,7 +74,7 @@ export function K9Params({ live }: { live: Live }) {
 
   return (
     <div>
-      <span className="tag">K9</span>
+      <span className="tag">K11</span>
       <h1>Ayarlar</h1>
       <p className="sub">Bağlantı, iş kuralları ve günlükler tek yerde. İş kuralları koda gömülü değildir, buradan girilir. Stok bandı büyük alış ve satışı tetikler; envanter hedefi yalnız hazine alım satımıyla değişir. Onay matrisi hazine emirlerinde kaç onay gerektiğini belirler. Her değişiklik ikinci onay ister ve günlüğe yazılır.</p>
 

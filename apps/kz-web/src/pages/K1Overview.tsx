@@ -22,7 +22,7 @@ export function K1Overview({ live }: { live: Live }) {
     api.orders(300).then((d) => setOrders(d.items)).catch(() => {});
     api.settlements().then((x) => setStl(x.open)).catch(() => {});
     api.approvals().then((a) => setPendingApprovals(a.pending.length)).catch(() => {});
-    api.documents().then((d) => setDocs(d.length)).catch(() => {});
+    api.documents().then((d) => setDocs(d.count)).catch(() => {});
   }, [live.version]);
 
   const today = new Date().toISOString().slice(0, 10);
@@ -54,8 +54,8 @@ export function K1Overview({ live }: { live: Live }) {
           <div className="small">müşteri satar {usd?.clientSell ?? "…"} · alır {usd?.clientBuy ?? "…"} · marj %{s ? (s.pricing.marginBps / 100).toFixed(2) : "…"} gömülü</div>
         </Link>
 
-        <Link to="/hesaplar" className="card kpi">
-          <h2>Hesaplar (KZ kaydı)</h2>
+        <Link to="/cari" className="card kpi">
+          <h2>Cari hesap (KZ kaydı)</h2>
           <div className="n">{fmtG(v)} g</div>
           <div className="small" style={{ marginTop: 6 }}>kasa hesabı · kasada {r ? fmtG(r.vault.in_vault_mg) : 0} · konuluyor {r ? fmtG(r.vault.placing_mg) : 0} · sevkiyatta {r ? fmtG(r.vault.shipping_mg) : 0}</div>
           <div className="small">cari hesap {r ? `${r.current_account.gold_mg >= 0 ? "+" : ""}${fmtG(r.current_account.gold_mg)} g` : "…"} · {r?.current_account.money.map((m) => `${m.ccy} ${fmtMoney(m.cents)}`).join(" · ")}</div>
@@ -102,7 +102,7 @@ export function K1Overview({ live }: { live: Live }) {
           <div className="small" style={{ marginTop: 6 }}>rafineriden alınan ve Kanzasset'te saklanan belge kopyası (fiş, teklif, ekstre, Tahsis Belgesi)</div>
         </Link>
 
-        <Link to="/hesaplar" className="card">
+        <Link to="/cari" className="card">
           <h2>Kontroller</h2>
           <div className="small"><b>K1</b> {s?.checks.k1.text} <span className={`pill ${s?.checks.k1.ok ? "ok" : "bad"}`}>{s?.checks.k1.ok ? "sağlanıyor" : "bozuk"}</span></div>
           <div className="small" style={{ marginTop: 4 }}><b>K2</b> {s?.checks.k2.text} <span className={`pill ${s?.checks.k2.ok ? "ok" : "bad"}`}>{s?.checks.k2.ok ? "sağlanıyor" : "bozuk"}</span></div>

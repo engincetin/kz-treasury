@@ -1,16 +1,17 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, fmtDT, fmtG, fmtMoney, TREASURY_STATUS_TR, type StockParams, type TreasuryRequest, type useLive } from "../api.ts";
 import { Pager, usePager } from "../components/Pager.tsx";
 
 type Live = ReturnType<typeof useLive>;
 
 /**
- * K5 Hazine alım satımı (Akışlar 09).
+ * K12 Hazine alım satımı (Akışlar 09).
  * Envanter hedefini (K) değiştirmek için rafineriyle kendi alım satımımız. Maker-checker: talebi hazineci açar,
  * onaycılar onaylar, son onaycı canlı fiyatla gönderir (bağlayıcı fiyat gönderim anındakidir).
  * Alım sermayeden ödenir, müşteri parası asla; satımda yalnız hazine stokundaki tokenler yakılır.
  */
-export function K5Treasury({ live }: { live: Live }) {
+export function K12Treasury({ live }: { live: Live }) {
   const [data, setData] = useState<{ items: TreasuryRequest[]; pending: TreasuryRequest[]; stock: StockParams } | null>(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState("");
@@ -39,9 +40,9 @@ export function K5Treasury({ live }: { live: Live }) {
   const pItems = usePager(data?.items ?? [], 20);
   return (
     <div>
-      <span className="tag">K5</span>
+      <span className="tag">K12</span>
       <h1>Hazine alım satımı</h1>
-      <p className="sub">Müşteri emrinden bağımsız olarak envanter hedefini değiştiririz. Alım: alış emri, kasa girişi, mint; hedef artar. Satım: satış emri, burn, kasa çıkışı; hedef azalır. Onay matrisi grama göredir. Son onaycı canlı fiyatla gönderir: gönderim anındaki fiyat bağlayıcıdır. Bedel mahsuplaşmada netleşir.</p>
+      <p className="sub">Müşteri emrinden bağımsız olarak envanter hedefini değiştiririz. Alım: alış emri, kasa girişi, mint; hedef artar. Satım: satış emri, burn, kasa çıkışı; hedef azalır. Onay matrisi grama göredir. Son onaycı canlı fiyatla gönderir: gönderim anındaki fiyat bağlayıcıdır. Bedel mahsuplaşmada netleşir. Müşteri emirleri buraya girmez: onlar kendiliğinden gider ve <Link to="/emirler">Emirler</Link> ekranında görünür.</p>
 
       <div className="grid c3" style={{ marginBottom: 14 }}>
         <div className="card">

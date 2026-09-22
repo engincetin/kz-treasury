@@ -35,6 +35,9 @@ export interface KzDelivery {
   status: string;
   quote?: { quote_id: string; carrier: string; amount_cents: number; ccy: string; valid_until: string; doc_id?: string };
   customer_price_cents?: number; // müşteriye yansıtılan masraf (aynen)
+  /** Rafineri belgelerinin numaraları: kendi kaydımızda dursun, belge kopyası bunlarla çekilir (K12). */
+  shipping_doc_id?: string;
+  pod_doc_id?: string;
   tracking_no?: string;
   burned: boolean;
   burn_tx?: string;
@@ -55,6 +58,8 @@ export interface KzRefining {
   status: string;
   quote?: { quote_id: string; product_cents: number; logistics_cents: number; ccy: string; lead_time_days: number; valid_until: string; doc_id?: string };
   customer_price_cents?: number; // marj + komisyon dahil müşteri fiyatı
+  shipping_doc_id?: string;
+  pod_doc_id?: string;
   tracking_no?: string;
   burned: boolean;
   burn_tx?: string;
@@ -277,6 +282,7 @@ export class FulfilmentDesk {
         if (item.status !== "READY") {
           item.status = "READY";
           applyShipReady(rec, qty);
+          if (data.shipping_doc_id) item.shipping_doc_id = data.shipping_doc_id;
           this.log(item, `hazır · Sevkiyat Fişi ${data.shipping_doc_id ?? ""} · kasada −${g(qty)} · sevkiyatta +${g(qty)}`);
         }
         break;
@@ -292,6 +298,7 @@ export class FulfilmentDesk {
         if (item.status !== "DELIVERED") {
           item.status = "DELIVERED";
           applyShipDelivered(rec, qty);
+          if (data.pod_doc_id) item.pod_doc_id = data.pod_doc_id;
           this.log(item, `teslim edildi · Teslimat Kaydı ${data.pod_doc_id ?? ""} · sevkiyatta −${g(qty)}`);
           if (!item.burned) this.doBurn(item, qty, "teslim anında (burn anı: DELIVERED)");
         }

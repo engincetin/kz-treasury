@@ -4,8 +4,13 @@ import { ApprovalBox } from "../components/ApprovalBox.tsx";
 
 type Live = ReturnType<typeof useLive>;
 
-/** K2 Rafineri hesapları: KZ kaydı ↔ rafineri bakiye bilgisi, eşleşme kuralı, RECONCILE çözümü. */
-export function K2Accounts({ live }: { live: Live }) {
+/**
+ * K5 Cari hesap: rafineri tarafındaki R5'in karşılığı.
+ * Üstte aynı büyüklükler (altın T ve kur bazında para), farkı şu: buradaki rakamlar KZ kaydıdır
+ * ve her harekette rafinerinin bakiye bilgisiyle karşılaştırılır. Eşleşme kuralı, fark satırları ve
+ * RECONCILE çözümü bu ekrandadır. Kasa hesabının kendi ekranı K4'tür; burada yalnız karşılaştırması vardır.
+ */
+export function K5Accounts({ live }: { live: Live }) {
   const s = live.status;
   const r = s?.record;
   const c = s?.checks;
@@ -22,15 +27,33 @@ export function K2Accounts({ live }: { live: Live }) {
 
   return (
     <div>
-      <span className="tag">K2</span>
-      <h1>Hesaplar</h1>
-      <p className="sub">Rafinerinin Kanzasset adına tuttuğu iki hesabın Kanzasset'teki karşılığı (KZ kaydı) ve rafineriden gelen bakiye bilgisiyle eşleşmesi. Kural: her harekette birebir eşit olmalı. Eşit değilse hareket geçerli kalır, hesap RECONCILE olur, mint ve kasa çıkışı talebi bloke edilir. Sıra numarası atlarsa anlık fotoğraf istenir.</p>
+      <span className="tag">K5</span>
+      <h1>Cari hesap</h1>
+      <p className="sub">Gün içinde biriken karşılıklı alacak ve borç, Kanzasset kaydına göre: altın T (artı = rafineriden aldık, henüz kasaya konmadı; eksi = sattık, kasadan çıkacak) ve kur bazında para. Aynı rakamlar rafineride de tutulur; her harekette karşılaştırılır. Kural: her harekette birebir eşit olmalı. Eşit değilse hareket geçerli kalır, hesap RECONCILE olur, mint ve kasa çıkışı talebi bloke edilir. Sıra numarası atlarsa anlık fotoğraf istenir.</p>
+
+      <div className="grid c3" style={{ marginBottom: 14 }}>
+        <div className="card">
+          <h2>Altın (T)</h2>
+          <div className="mono" style={{ fontSize: 22, fontWeight: 600 }}>{(r?.current_account.gold_mg ?? 0) >= 0 ? "+" : ""}{fmtG(r?.current_account.gold_mg ?? 0)} g</div>
+          <div className="small">{(r?.current_account.gold_mg ?? 0) > 0 ? "rafineriden alacağımız gram: kasa girişiyle kapanır" : (r?.current_account.gold_mg ?? 0) < 0 ? "rafineriye borçlu olduğumuz gram: kasa çıkışıyla kapanır" : "kapalı"}</div>
+        </div>
+        {["USD", "EUR", "AED"].map((ccy) => {
+          const cents = money(r?.current_account.money, ccy);
+          return (
+            <div className="card" key={ccy}>
+              <h2>Para · {ccy}</h2>
+              <div className="mono" style={{ fontSize: 22, fontWeight: 600 }}>{cents > 0 ? "+" : ""}{fmtMoney(cents)}</div>
+              <div className="small">{cents < 0 ? "rafineriye borçluyuz (alışlar)" : cents > 0 ? "rafineri borçlu (satışlar)" : "kapalı"}</div>
+            </div>
+          );
+        })}
+      </div>
 
       <div className="grid c3" style={{ marginBottom: 14 }}>
         <div className="card">
           <h2>Eşleşme</h2>
           <div className="status"><span className={`dot ${r?.match === "EŞİT" ? "ok" : r?.match === "RECONCILE" ? "bad" : "warn"}`} />{r?.match ?? "…"}</div>
-          <div className="small" style={{ marginTop: 6 }}>son karşılaştırma {r?.lastCompareTs ? fmtDT(r.lastCompareTs) : "yok"} · KZ seq {r?.seq ?? 0} · rafineri seq {last?.seq ?? "?"}</div>
+          <div className="small" style={{ marginTop: 6 }}>son karşılaştırma {r?.lastCompareTs ? fmtDT(r.lastCompareTs) : "yok"} · KZ sırası {r?.seq ?? 0} · rafineri sırası {last?.seq ?? 0}</div>
           <div className="small">mint {r?.blocked.mint ? <span className="pill bad">BLOKE</span> : <span className="pill ok">serbest</span>} · kasa çıkışı {r?.blocked.vault_out ? <span className="pill bad">BLOKE</span> : <span className="pill ok">serbest</span>}</div>
         </div>
         <div className="card">
