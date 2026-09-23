@@ -109,7 +109,7 @@ export function K12Treasury({ live }: { live: Live }) {
           <input placeholder="onaycı adı" value={approver} onChange={(e) => setApprover(e.target.value)} />
           <span className="small">Hazineci kendi talebini onaylayamaz; aynı onaycı iki kez onaylayamaz.</span>
         </div>
-        <table>
+        <table className="wide">
           <thead><tr><th>Zaman</th><th>Talep</th><th>Yön</th><th className="num">Gram</th><th className="num">Talep anı fiyatı</th><th>Onay</th><th>Aksiyon</th></tr></thead>
           <tbody>
             {(data?.pending.length ?? 0) === 0 && <tr><td colSpan={7} className="small">Onay bekleyen talep yok</td></tr>}
@@ -137,7 +137,7 @@ export function K12Treasury({ live }: { live: Live }) {
 
       <section className="card">
         <h2>Talepler</h2>
-        <table>
+        <table className="wide">
           <thead><tr><th>Zaman</th><th>Talep</th><th>Yön</th><th className="num">Gram</th><th>Durum</th><th className="num">Gerçekleşme</th><th>Kasa talimatı</th><th>Hedef K</th><th></th></tr></thead>
           <tbody>
             {(data?.items.length ?? 0) === 0 && <tr><td colSpan={9} className="small">Talep yok</td></tr>}

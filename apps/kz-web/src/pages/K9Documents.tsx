@@ -53,7 +53,7 @@ export function K9Documents({ live }: { live: Live }) {
           <input className="wide" placeholder="belge no ya da ilgili kayıt" value={q.text} onChange={(e) => setQ({ ...q, text: e.target.value })} />
           <button className="ghost" onClick={load}>Yenile</button>
         </div>
-        <table>
+        <table className="wide">
           <thead><tr><th>Belge no</th><th>Tip</th><th>İlgili kayıt</th><th>Rafineri tarihi</th><th>Alınma</th><th>Kaynak</th><th>Doğrulama</th><th>Aksiyon</th></tr></thead>
           <tbody>
             {p.slice.length === 0 && <tr><td colSpan={8} className="small">Belge yok. Belgeler olaylarla kendiliğinden gelir; eskileri "Belgeleri eşitle" ile çekebilirsiniz.</td></tr>}

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Pager, usePager } from "../components/Pager.tsx";
 import { api, currentUser, needsApproval, type ApprovalRequest, type AuditEntry, type RequestLogRow, type RequestSummary, type StockParams, type useLive } from "../api.ts";
 
 type Live = ReturnType<typeof useLive>;
@@ -45,6 +46,9 @@ export function K11Settings({ live }: { live: Live }) {
    * Kritik değişiklik iki adımdır. İlk çağrı sunucuda onay isteği açar (202);
    * ikinci çağrı onay numarası ve onaylayanla gelir ve değişiklik o zaman uygulanır.
    */
+  const pReqs = usePager(reqs, 20, `${reqQ.direction}|${reqQ.errors}`);
+  const pLog = usePager(log, 20);
+
   const ask = async (what: string, call: (a: { approval_id?: number; approver?: string }) => Promise<unknown>) => {
     try {
       const r = await call({});
@@ -89,7 +93,7 @@ export function K11Settings({ live }: { live: Live }) {
             <input value={approver} onChange={(e) => setApprover(e.target.value)} />
             <span className="small">aktif kullanıcı: <b>{currentUser.name}</b> (üst şeritten değişir)</span>
           </div>
-          <table>
+          <table className="wide">
             <thead><tr><th>No</th><th>Ne</th><th>İsteyen</th><th>Zaman</th><th /></tr></thead>
             <tbody>
               {pending.map((a) => (
@@ -237,11 +241,11 @@ export function K11Settings({ live }: { live: Live }) {
           <input className="mono" style={{ width: 80 }} value={String(retention)} onChange={(e) => setRetention(Number(e.target.value) || 0)} />
           <button className="ghost" onClick={() => ask("istek günlüğü saklama parametreleri", (a) => api.logParams({ retentionDays: retention, ...a }))}>Kaydet</button>
         </div>
-        <table>
+        <table className="wide">
           <thead><tr><th>Zaman</th><th>Yön</th><th>İstek</th><th className="num">Sonuç</th><th className="num">Süre</th><th>Kim</th><th>Gövde özeti</th></tr></thead>
           <tbody>
-            {reqs.length === 0 && <tr><td colSpan={7} className="small">Kayıt yok</td></tr>}
-            {reqs.map((r) => (
+            {pReqs.total === 0 && <tr><td colSpan={7} className="small">Kayıt yok</td></tr>}
+            {pReqs.slice.map((r) => (
               <tr key={r.id}>
                 <td className="mono small">{new Date(r.ts).toLocaleString("tr-TR")}</td>
                 <td className="small">{r.direction}</td>
@@ -254,6 +258,7 @@ export function K11Settings({ live }: { live: Live }) {
             ))}
           </tbody>
         </table>
+        <Pager p={pReqs} label="İstek günlüğü" />
       </section>
 
       <div className="grid c2">
@@ -271,19 +276,20 @@ export function K11Settings({ live }: { live: Live }) {
         <section className="card">
           <h2>Denetim günlüğü</h2>
           <p className="small">Sunucuda tutulur, sayfa yenilenince kaybolmaz. Elle yapılan her aksiyon ve her onay adımı buradadır.</p>
-          <table>
+          <table className="wide">
             <thead><tr><th>Zaman</th><th>Kim</th><th>Ne</th></tr></thead>
             <tbody>
-              {log.length === 0 && <tr><td colSpan={3} className="small">Günlük boş</td></tr>}
-              {log.map((l) => (
+              {pLog.total === 0 && <tr><td colSpan={3} className="small">Günlük boş</td></tr>}
+              {pLog.slice.map((l) => (
                 <tr key={l.id}>
                   <td className="mono small">{new Date(l.ts).toLocaleString("tr-TR")}</td>
                   <td className="small">{l.actor}</td>
-                  <td className="small">{l.summary}<div className="mono" style={{ fontSize: 11, opacity: .6 }}>{l.action}</div></td>
+                  <td><div className="small" style={{ maxWidth: 420 }}>{l.summary}</div><div className="mono" style={{ fontSize: 11, opacity: .6 }}>{l.action}</div></td>
                 </tr>
               ))}
             </tbody>
           </table>
+          <Pager p={pLog} label="Denetim günlüğü" />
         </section>
       </div>
     </div>

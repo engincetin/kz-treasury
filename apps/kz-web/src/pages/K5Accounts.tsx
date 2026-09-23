@@ -1,5 +1,6 @@
-import { useState } from "react";
-import { api, FIELD_TR, fmtDT, fmtG, fmtMoney, needsApproval, type useLive } from "../api.ts";
+import { useEffect, useState } from "react";
+import { api, FIELD_TR, fmtDT, fmtG, fmtMoney, MOVE_TR, needsApproval, type KzMovement, type useLive } from "../api.ts";
+import { Pager, usePager } from "../components/Pager.tsx";
 import { ApprovalBox } from "../components/ApprovalBox.tsx";
 
 type Live = ReturnType<typeof useLive>;
@@ -17,6 +18,9 @@ export function K5Accounts({ live }: { live: Live }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
   const [explanation, setExplanation] = useState("");
+  /** Hareketler rafinerinin cari hesap ekstresinden gelir: rafineri ekranıyla aynı liste. */
+  const [movements, setMovements] = useState<KzMovement[]>([]);
+  useEffect(() => { api.recordStatement().then((st) => setMovements(st.movements ?? [])).catch(() => setMovements([])); }, [live.version]);
   /** Uyuşmazlık düzeltmesi kritik aksiyondur: sunucu önce onay ister, uygulamaz. */
   const [pending, setPending] = useState<{ id: number; requestedBy: string } | null>(null);
   const run = async (fn: () => Promise<string>) => { setBusy(true); setMsg(""); try { setMsg(await fn()); await live.refresh(); } catch (e) { setMsg(`Hata: ${(e as Error).message}`); } finally { setBusy(false); } };
@@ -24,6 +28,7 @@ export function K5Accounts({ live }: { live: Live }) {
   const last = r?.lastAccount;
   const money = (list: { ccy: string; cents: number }[] | undefined, ccy: string) => list?.find((m) => m.ccy === ccy)?.cents ?? 0;
   const v = r ? r.vault.in_vault_mg + r.vault.placing_mg + r.vault.shipping_mg : 0;
+  const pMov = usePager(movements, 10);
 
   return (
     <div>
@@ -122,6 +127,29 @@ export function K5Accounts({ live }: { live: Live }) {
               onDone={async (m) => { setPending(null); setExplanation(""); setMsg(m); await live.refresh(); }} />
           </div>
         )}
+      </section>
+
+      <section className="card" style={{ marginBottom: 14 }}>
+        <div className="row" style={{ alignItems: "baseline" }}>
+          <h2 style={{ margin: 0 }}>Hareketler</h2>
+          <span className="small">rafinerinin cari hesap ekstresinden; rafineri ekranındaki listenin aynısıdır</span>
+        </div>
+        <table className="wide">
+          <thead><tr><th className="num">Sıra</th><th>Zaman</th><th>Tür</th><th className="num">Altın (g)</th><th>Kur</th><th className="num">Para</th><th>Referans</th></tr></thead>
+          <tbody>
+            {movements.length === 0 && <tr><td colSpan={7} className="small">Hareket yok</td></tr>}
+            {pMov.slice.map((m) => (
+              <tr key={m.id}>
+                <td className="num">{m.seq}</td><td className="mono">{fmtDT(m.ts)}</td><td>{MOVE_TR[m.type] ?? m.type}</td>
+                <td className="num">{m.gold_mg ? `${m.gold_mg > 0 ? "+" : ""}${fmtG(m.gold_mg)}` : ""}</td>
+                <td>{m.ccy ?? ""}</td>
+                <td className="num">{m.amount_cents !== undefined && m.amount_cents !== null ? `${m.amount_cents > 0 ? "+" : ""}${fmtMoney(m.amount_cents)}` : ""}</td>
+                <td className="mono small">{m.ref ?? ""}{m.related_id && m.related_id !== m.ref ? ` · ${m.related_id}` : ""}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <Pager p={pMov} label="Hareketler" />
       </section>
 
       <div className="grid c2">

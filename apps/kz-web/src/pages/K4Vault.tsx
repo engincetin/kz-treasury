@@ -66,7 +66,7 @@ export function K4Vault({ live }: { live: Live }) {
       {(v?.holds.length ?? 0) > 0 && (
         <section className="card" style={{ marginBottom: 14 }}>
           <h2>Duran talepler</h2>
-          <table>
+          <table className="wide">
             <thead><tr><th>Referans</th><th>Tür</th><th className="num">Gram</th><th>Sebep</th><th>Aksiyon</th></tr></thead>
             <tbody>
               {v?.holds.map((i) => (
@@ -85,7 +85,7 @@ export function K4Vault({ live }: { live: Live }) {
 
       <section className="card" style={{ marginBottom: 14 }}>
         <h2>Talimatlar</h2>
-        <table>
+        <table className="wide">
           <thead><tr><th>Zaman</th><th>Referans</th><th>Tür</th><th className="num">Gram</th><th>Tetik</th><th>Durum</th><th>Fiş</th><th>Mint / burn</th><th></th></tr></thead>
           <tbody>
             {(v?.items.length ?? 0) === 0 && <tr><td colSpan={9} className="small">Talimat yok</td></tr>}

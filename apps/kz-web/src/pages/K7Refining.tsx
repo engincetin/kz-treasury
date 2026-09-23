@@ -44,8 +44,8 @@ export function K7Refining({ live }: { live: Live }) {
       <div className="grid c3" style={{ marginBottom: 14 }}>
         <div className="card">
           <h2>Katalog</h2>
-          <div className="mono" style={{ fontSize: 20, fontWeight: 600 }}>sürüm {cat?.version ?? 0}</div>
-          <div className="small">{cat?.items.filter((i) => i.active).length ?? 0} aktif ürün</div>
+          <div className="mono" style={{ fontSize: 20, fontWeight: 600 }}>{cat?.items.filter((i) => i.active).length ?? 0} ürün</div>
+          <div className="small">rafinerinin kataloğu, aktif ürünler; değişince kendiliğinden yenilenir</div>
           <button className="ghost" style={{ marginTop: 8 }} onClick={() => act("cat", () => api.catalogRefresh(), "Katalog yenilendi.")}>Kataloğu yenile</button>
         </div>
         <div className="card">
@@ -64,7 +64,7 @@ export function K7Refining({ live }: { live: Live }) {
 
       <section className="card" style={{ marginBottom: 14 }}>
         <h2>Müşteri seçimi (demo kutusu)</h2>
-        <table>
+        <table className="wide">
           <thead><tr><th>Ürün</th><th className="num">Gramaj</th><th>Ayar</th><th className="num">Tarife</th><th className="num">Üretim</th><th className="num">Adet</th></tr></thead>
           <tbody>
             {cat?.items.filter((i) => i.active).map((i) => (
@@ -90,7 +90,7 @@ export function K7Refining({ live }: { live: Live }) {
 
       <section className="card">
         <h2>Talepler</h2>
-        <table>
+        <table className="wide">
           <thead><tr><th>Zaman</th><th>Talep</th><th>Kalemler</th><th className="num">Saf gram</th><th>Durum</th><th>Teklif</th><th className="num">Müşteri fiyatı</th><th>Burn</th><th>Belgeler</th><th>Aksiyon</th></tr></thead>
           <tbody>
             {(v?.refinings.length ?? 0) === 0 && <tr><td colSpan={10} className="small">Rafinasyon talebi yok</td></tr>}

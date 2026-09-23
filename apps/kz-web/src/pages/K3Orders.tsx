@@ -97,7 +97,7 @@ export function K3Orders({ live }: { live: Live }) {
           <button className="ghost" onClick={() => { setPeriod("bugun"); setDay(today()); setSideF(""); setStatusF(""); setSearch(""); }}>Temizle</button>
           <span className="small" style={{ marginLeft: "auto" }}>{list.length} kayıt{list.length !== all.length ? ` (${all.length} içinden)` : ""}</span>
         </div>
-        <table>
+        <table className="wide">
           <thead><tr><th>Zaman</th><th>Müşteri emri no</th><th>Yön</th><th className="num">Gram</th><th>Kur</th><th className="num">Müşteri fiyatı</th><th className="num">Müşteri toplamı</th><th className="num">Gerçekleşme</th><th className="num">Marj</th><th>Akış</th><th>Rafineri</th><th>Müşteri</th><th>Eşleşme</th></tr></thead>
           <tbody>
             {list.length === 0 && <tr><td colSpan={13} className="small">Kayıt yok</td></tr>}

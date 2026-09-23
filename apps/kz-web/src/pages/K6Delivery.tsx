@@ -86,7 +86,7 @@ export function K6Delivery({ live }: { live: Live }) {
 
       <section className="card">
         <h2>Talepler</h2>
-        <table>
+        <table className="wide">
           <thead><tr><th>Zaman</th><th>Talep</th><th className="num">Gram</th><th>Durum</th><th>Lojistik teklifi</th><th>Takip</th><th>Burn</th><th>Belgeler</th><th>Aksiyon</th></tr></thead>
           <tbody>
             {(v?.deliveries.length ?? 0) === 0 && <tr><td colSpan={9} className="small">Teslimat talebi yok</td></tr>}

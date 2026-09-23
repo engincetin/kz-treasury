@@ -95,6 +95,7 @@ export interface FulfilmentView {
 }
 /** Sihirbazda girilen tutarlar: verilmeyen bacak tamamıyla kapatılır. */
 export interface RequestedAmounts { gold_mg?: number; money?: { ccy: string; cents: number }[] }
+export interface KzMovement { id: number; seq: number; type: string; gold_mg: number; ccy?: string; amount_cents?: number; ref?: string; related_id?: string; ts: string }
 export interface KzSettlement {
   settlement_id: string; trigger: string; status: string; window_from: string; window_to: string;
   amr_gold_mg?: number; amr_money?: { ccy: string; cents: number }[];
@@ -133,6 +134,7 @@ export interface Doc { meta: { doc_id: string; type: string; related_id: string;
 /** K12: belgenin Kanzasset kopyasının künyesi (içerik ayrı çekilir). */
 export interface DocumentsView { count: number; signature_checked: boolean; last_sync_ts: string | null; auto_sync_minutes: number; items: KzDocumentRow[] }
 export interface KzDocumentRow { doc_id: string; type: string; related_id: string; hash: string; signature: string; created_ts: string; received_ts: string; source: string; hash_ok: boolean; signature_ok: boolean | null }
+export const MOVE_TR: Record<string, string> = { OPENING: "açılış devri", FILL_BUY: "alış (fill)", FILL_SELL: "satış (fill)", VAULT_IN: "kasa girişi", VAULT_OUT: "kasa çıkışı", FEE_DELIVERY: "lojistik bedeli", FEE_REFINING: "rafinasyon bedeli", SETTLEMENT_PAYMENT: "mahsuplaşma ödemesi" };
 export const DOC_TYPE_TR: Record<string, string> = { ALLOCATION_CERTIFICATE: "Tahsis Belgesi", VAULT_IN_SLIP: "Kasa Giriş Fişi", VAULT_OUT_SLIP: "Kasa Çıkış Fişi", LOGISTICS_QUOTE: "Lojistik Teklifi", REFINING_QUOTE: "Rafinasyon Teklifi", SHIPPING_SLIP: "Sevkiyat Fişi", DELIVERY_RECORD: "Teslimat Kaydı", VAULT_STATEMENT: "Günlük Kasa Ekstresi", CURRENT_ACCOUNT_STATEMENT: "Cari Hesap Ekstresi", SETTLEMENT_STATEMENT: "Mahsuplaşma Ekstresi" };
 
 /** Kritik uçlarda ikinci onay: ilk istekte boş, onayda numara ve onaylayan. */
@@ -166,6 +168,8 @@ export const api = {
   vaultManual: (type: "IN" | "OUT", qty_mg: number, reason: string) => req<VaultInstruction>("/api/vault", { method: "POST", body: JSON.stringify({ type, qty_mg, reason }) }),
   vaultRetry: (ref: string) => req<VaultInstruction>(`/api/vault/${encodeURIComponent(ref)}/retry`, { method: "POST", body: "{}" }),
   flushMints: () => req<{ ok: boolean; awaiting: number; block: string | null }>("/api/vault/flush-mints", { method: "POST", body: "{}" }),
+  /** Cari hesap ekstresi (rafineriden): hareket listesi, imza. */
+  recordStatement: () => req<{ window_from: string; window_to: string; movements: KzMovement[]; gold_mg: number; money: { ccy: string; cents: number }[]; hash: string; signature: string }>("/api/record/statement"),
   vaultStatement: (date?: string) => req<VaultStatementDoc>(`/api/vault/statement${date ? `?date=${date}` : ""}`),
   // K5 hazine alım satımı
   treasury: () => req<{ items: TreasuryRequest[]; pending: TreasuryRequest[]; stock: StockParams; record: KzRecord }>("/api/treasury"),
