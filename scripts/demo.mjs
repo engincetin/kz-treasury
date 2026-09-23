@@ -405,6 +405,20 @@ async function main() {
     process.exit(1);
   }
 
+  // rafineri olayları kayıtlı adrese gönderir: Kanzasset başka bir portta çalışıyorsa (ör. 5050)
+  // olaylar boşluğa gider, fiş gelmez, mint olmaz ve senaryolar teslimat adımında takılır
+  const clients = await amr("/admin/clients").catch(() => null);
+  const target = clients?.find((c) => c.active && c.event_url)?.event_url;
+  if (target) {
+    const port = (u) => { try { const x = new URL(u); return x.port || (x.protocol === "https:" ? "443" : "80"); } catch { return null; } };
+    if (port(target) !== port(KZ)) {
+      console.error(`\n\x1b[31mRafineri olayları başka adrese gidiyor.\x1b[0m Kayıtlı olay adresi ${target}, Kanzasset ise ${KZ}.\n` +
+        "Olaylar (fiş, kabul, mahsuplaşma) yerine ulaşmaz: mint olmaz, teslimat adımı \"token yetersiz\" der.\n" +
+        `Rafineriyi olay adresiyle başlatın:\n  amr-app: KZ_EVENT_URL=${new URL("/api/events", KZ).href} VAULT_OPENING_MG=20000000 npm run dev\n`);
+      process.exit(1);
+    }
+  }
+
   for (const name of names) {
     const fn = SCENARIOS[name];
     if (!fn) { console.log(`\n(${name} yok, atlandı)`); continue; }
