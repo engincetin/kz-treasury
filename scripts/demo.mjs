@@ -383,6 +383,27 @@ async function main() {
     process.exit(1);
   }
 
+  // açılış devri olmadan senaryolar yürümez: kasada gram, karşılığında token yoktur
+  const opening = await status().catch(() => null);
+  if (opening && opening.record.vault.in_vault_mg === 0 && opening.record.stock.k_mg === 0) {
+    console.error("\n\x1b[31mAçılış devri yok.\x1b[0m Kasada gram, karşılığında stok görünmüyor: senaryolar teslimat ve mahsuplaşma adımlarında takılır.\n" +
+      "Defterler ilk kurulduğunda yazılır, o yüzden veriyi silip sunucuları açılış devriyle başlatın:\n" +
+      "  amr-app:     rm -f apps/amr-server/data/amr.db* && VAULT_OPENING_MG=20000000 npm run dev\n" +
+      "  kz-treasury: rm -rf apps/kz-server/data && KZ_OPENING_MG=20000000 npm run dev\n" +
+      "İki taraftaki rakam aynı olmalı (20000000 mg = 20 kg), yoksa K2 tutmaz.\n");
+    process.exit(1);
+  }
+  // iki defter baştan farklıysa mint bloke olur ve senaryolar teslimat adımında takılır:
+  // en sık sebep bir tarafı sıfırlayıp diğerini eski veriyle bırakmaktır
+  if (opening && opening.record.match !== "EŞİT") {
+    console.error(`\n\x1b[31mİki defter baştan farklı (${opening.record.match}).\x1b[0m KZ kaydı ile rafineri bakiye bilgisi tutmuyor: mint bloke olur, senaryolar teslimat adımında takılır.\n` +
+      "İki tarafı birlikte sıfırlayın, önce ikisini de durdurup sonra silin:\n" +
+      "  amr-app:     rm -f apps/amr-server/data/amr.db* && VAULT_OPENING_MG=20000000 npm run dev\n" +
+      "  kz-treasury: rm -rf apps/kz-server/data && KZ_OPENING_MG=20000000 npm run dev\n" +
+      "Sunucu ayaktayken silmek işe yaramaz: eski defter dosya açık olduğu için yaşamaya devam eder.\n");
+    process.exit(1);
+  }
+
   for (const name of names) {
     const fn = SCENARIOS[name];
     if (!fn) { console.log(`\n(${name} yok, atlandı)`); continue; }
