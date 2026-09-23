@@ -6,7 +6,18 @@ import { createHmac } from "node:crypto";
 import { signingString, type Account, type Catalog, type CurrentAccountStatement, type Delivery, type Document, type OrderRequest, type OrderResponse, type Refining, type SessionStatus, type Settlement, type VaultRequest, type VaultStatement } from "@amr/contract";
 
 export class AmrTimeout extends Error { constructor(msg = "zaman aşımı") { super(msg); this.name = "AmrTimeout"; } }
-export class AmrHttpError extends Error { constructor(public status: number, public body: unknown) { super(`HTTP ${status}`); this.name = "AmrHttpError"; } }
+/**
+ * Rafinerinin 4xx / 5xx cevabı. Mesaj, rafinerinin kendi açıklamasını taşır
+ * ("cari hesap altını 0,000 g < talep 9.000,000 g" gibi): ekranda yalnız "HTTP 409" görünmesin.
+ */
+export class AmrHttpError extends Error {
+  constructor(public status: number, public body: unknown) {
+    const b = body as { error?: string; message?: string; reason?: string } | undefined;
+    const detail = b?.error ?? b?.message ?? b?.reason;
+    super(detail ? `${detail} (HTTP ${status})` : `HTTP ${status}`);
+    this.name = "AmrHttpError";
+  }
+}
 
 export class AmrClient {
   constructor(public baseUrl: string, private apiKey: string, private secret: string) {}
@@ -38,8 +49,8 @@ export class AmrClient {
       const res = await fetch(this.baseUrl + path, { method, headers: this.headers(method, path.split("?")[0], raw, opts.idempotencyKey), body: raw || undefined, signal: ctrl.signal });
       const text = await res.text();
       const json = text ? JSON.parse(text) : undefined;
-      note(res.status, res.ok ? undefined : `HTTP ${res.status}`);
-      if (!res.ok) throw new AmrHttpError(res.status, json);
+      if (!res.ok) { const err = new AmrHttpError(res.status, json); note(res.status, err.message); throw err; }
+      note(res.status);
       return json as T;
     } catch (e) {
       if ((e as Error).name === "AbortError") { note(0, "zaman aşımı"); throw new AmrTimeout(); }

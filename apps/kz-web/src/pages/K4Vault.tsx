@@ -22,7 +22,7 @@ export function K4Vault({ live }: { live: Live }) {
 
   const act = async (key: string, fn: () => Promise<unknown>, done: string) => {
     setBusy(key); setMsg("");
-    try { await fn(); setMsg(done); await load(); live.refresh(); }
+    try { const r = await fn(); setMsg(typeof r === "string" ? r : done); await load(); live.refresh(); }
     catch (e) { setMsg(`Hata: ${(e as Error).message}`); }
     finally { setBusy(""); }
   };
@@ -96,7 +96,10 @@ export function K4Vault({ live }: { live: Live }) {
                 <td>{i.type === "IN" ? "Giriş" : "Çıkış"}</td>
                 <td className="num mono">{fmtG(i.qty_mg)}</td>
                 <td className="small">{VAULT_TRIGGER_TR[i.trigger] ?? i.trigger}</td>
-                <td><span className={`pill ${i.status === "PLACED" || i.status === "ACCEPTED" ? "ok" : i.status === "REJECTED" || i.status === "OVERDUE" || i.status === "ERROR" ? "bad" : ""}`}>{VAULT_STATUS_TR[i.status] ?? i.status}</span></td>
+                <td>
+                  <span className={`pill ${i.status === "PLACED" || i.status === "ACCEPTED" ? "ok" : i.status === "REJECTED" || i.status === "OVERDUE" || i.status === "ERROR" ? "bad" : ""}`}>{VAULT_STATUS_TR[i.status] ?? i.status}</span>
+                  {(i.reject_reason ?? i.hold_reason) && <div className="small" style={{ marginTop: 4, opacity: .8 }}>{i.reject_reason ?? i.hold_reason}</div>}
+                </td>
                 <td className="mono small">{i.doc_id ?? ""}</td>
                 <td className="mono small">{i.minted ? `mint ${i.mint_tx}` : i.burned ? `burn ${i.burn_tx}` : i.doc_id && i.type === "IN" ? "mint bekliyor" : ""}</td>
                 <td><button className="ghost" onClick={() => setOpen(i)}>Zincir</button></td>
@@ -111,6 +114,7 @@ export function K4Vault({ live }: { live: Live }) {
         <section className="card">
           <h2>Elle kasa talimatı</h2>
           <p className="small">Yalnız yönetici; gerekçe zorunlu ve denetim izinde kalır. Olağan talepler büyük alış / satış, hazine alım satımı ve mahsuplaşma zincirlerinden kendiliğinden gelir.</p>
+          <p className="small">Kural: <b>kasa girişi</b> cari hesap altınından (T) büyük olamaz, şu an {fmtG(v?.record.current_account.gold_mg ?? 0)} g. <b>Kasa çıkışı</b> yalnız "kasada" duran gramdan yapılır ({fmtG(v?.record.vault.in_vault_mg ?? 0)} g), "kasaya konuluyor" sayılmaz ve önce token yakılır.</p>
           <div className="row">
             <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value as "IN" | "OUT" })}>
               <option value="IN">Kasa girişi</option>
@@ -123,8 +127,12 @@ export function K4Vault({ live }: { live: Live }) {
             <button className="primary" disabled={!form.qty || !form.reason.trim() || busy === "manual"} onClick={() => act("manual", async () => {
               const mg = Math.round(Number(form.qty.replace(",", ".")) * 1000);
               if (!Number.isFinite(mg) || mg < 1) throw new Error("gram geçersiz");
-              await api.vaultManual(form.type, mg, form.reason.trim());
+              const r = await api.vaultManual(form.type, mg, form.reason.trim());
+              // rafineri talebi reddedebilir ya da istek hiç gitmeyebilir: sonucu ve sebebini söyle
+              const why = r.reject_reason ?? r.hold_reason;
+              if (r.status === "ERROR" || r.status === "REJECTED") throw new Error(`talep ${r.status === "ERROR" ? "gönderilemedi" : "reddedildi"}${why ? `: ${why}` : ""}`);
               setForm({ ...form, qty: "", reason: "" });
+              return r.status === "HOLD" ? `Talep beklemede (${why ?? "kasaya konuluyor tavanı dolu"}); tavan boşalınca kendiliğinden gönderilir.` : undefined;
             }, "Kasa talimatı gönderildi.")}>Gönder</button>
           </div>
         </section>
