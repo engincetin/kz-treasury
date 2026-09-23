@@ -27,6 +27,8 @@ export interface KzSettlement {
   kz_money?: { ccy: string; cents: number }[];
   diffs?: { field: string; amr: string; kz: string }[];
   scope?: string[];
+  /** KZ kaydına işlenmiş para bacakları: aynı ödeme iki kez uygulanmasın. */
+  applied_ccy?: string[];
   gold_leg?: { direction: string; qty_mg: number; requested_mg?: number; settled_mg?: number; vault_ref?: string; done: boolean; proposed_ts?: string; approved_ts?: string };
   money_leg: { ccy: string; net_cents: number; requested_cents?: number; direction: string; paid: boolean; bank_ref?: string }[];
   doc_id?: string;
@@ -160,6 +162,7 @@ export class KzSettlementDesk {
       this.absorb(s1, `ödeme bildirimi gönderildi · banka ref ${bankRef}`);
       const s2 = await this.d.amr.settlementPaymentReceived(id, ccy, bankRef);
       applyFee(this.d.record(), ccy as any, -amount); // eksi borcu kapatır (applyFee çıkarır)
+      w.applied_ccy = [...(w.applied_ccy ?? []), ccy];
       this.log(w, `rafineri ödemeyi aldı · ${ccy} kapandı`);
       return this.absorb(s2, "ödeme kapandı");
     }
@@ -167,6 +170,7 @@ export class KzSettlementDesk {
     const s = await this.d.amr.settlementPaymentReceived(id, ccy, leg.bank_ref);
     const got = Math.min(Math.abs(leg.net_cents), leg.requested_cents ?? Math.abs(leg.net_cents));
     applyFee(this.d.record(), ccy as any, got); // artı alacağı kapatır
+    w.applied_ccy = [...(w.applied_ccy ?? []), ccy];
     this.log(w, `rafineriden ödeme alındı: ${money(got)} ${ccy}`);
     return this.absorb(s, "ödeme alındı");
   }
@@ -183,6 +187,22 @@ export class KzSettlementDesk {
       const w = id ? this.get(id) : undefined;
       if (w) { w.gold_leg = { ...(w.gold_leg ?? { direction: "VAULT_IN", qty_mg: data?.qty_mg ?? 0, done: false }), direction: "VAULT_IN", qty_mg: data?.qty_mg ?? 0, proposed_ts: data?.proposed_ts }; this.log(w, `rafineri teklifi: ${g(data?.qty_mg ?? 0)} g kasaya konsun mu`); this.d.onChange(); }
       return `altın teklifi ${id ?? ""}`;
+    }
+    if (type === "settlement.payment_received") {
+      // ödeme rafineri panelinden onaylanmış olabilir: KZ kaydı da aynı tutarda kapanmalı
+      const w = id ? this.get(id) : undefined;
+      const ccy = String(data?.ccy ?? "");
+      const closed = Number(data?.closed_cents ?? 0);
+      if (w && ccy && closed && !(w.applied_ccy ?? []).includes(ccy)) {
+        applyFee(this.d.record(), ccy as any, closed);
+        w.applied_ccy = [...(w.applied_ccy ?? []), ccy];
+        const leg = w.money_leg.find((l) => l.ccy === ccy);
+        if (leg) leg.paid = true;
+        this.log(w, `rafineri ${ccy} ödemesini kapattı: ${money(Math.abs(closed))} · KZ kaydı güncellendi`);
+        this.d.notify("settlement.payment_received", "Ödeme kapandı", `${ccy} ${money(Math.abs(closed))}`);
+        this.d.onChange();
+      }
+      return `${id ?? ""} ${ccy} ödemesi kapandı`;
     }
     if (type === "settlement.opened") {
       this.d.notify("settlement.opened", "Mahsuplaşma penceresi açıldı", `${data?.trigger ?? ""}`);

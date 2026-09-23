@@ -172,3 +172,27 @@ test("12 kapsam: talep edilen bacaklar rafineriye iletilir", async () => {
   await s.desk.request("REQUEST_KZ", "yalnız USD", ["USD"]);
   assert.equal(s.calls.filter((c) => c.kind === "open").length, 1);
 });
+
+test("12 ödeme hangi panelden onaylanırsa onaylansın KZ kaydı bir kez kapanır", async () => {
+  // rafineri panelinden onaylanan ödeme: olayla gelir, KZ kaydı da kapanır
+  const r1 = emptyRecord(20_000_000);
+  applyFill(r1, "BUY", 1_000_000, "USD", 142_000_00, { deliver: false });
+  const a = setup(r1, 1_000_000, -142_000_00);
+  const w1 = await a.desk.request("CUTOFF");
+  assert.equal(r1.current_account.money.find((m) => m.ccy === "USD")!.cents, -142_000_00);
+  a.desk.onEvent("settlement.payment_received", { settlement_id: w1.settlement_id, ccy: "USD", closed_cents: -142_000_00 });
+  assert.equal(r1.current_account.money.find((m) => m.ccy === "USD")!.cents, 0, "olayla kapandı");
+  // aynı olay tekrar gelirse ikinci kez uygulanmaz
+  a.desk.onEvent("settlement.payment_received", { settlement_id: w1.settlement_id, ccy: "USD", closed_cents: -142_000_00 });
+  assert.equal(r1.current_account.money.find((m) => m.ccy === "USD")!.cents, 0, "tekrar uygulanmaz");
+
+  // Kanzasset panelinden ödenen: önce kendimiz uygularız, dönen olay tekrar uygulamaz
+  const r2 = emptyRecord(20_000_000);
+  applyFill(r2, "BUY", 1_000_000, "USD", 142_000_00, { deliver: false });
+  const b = setup(r2, 1_000_000, -142_000_00);
+  const w2 = await b.desk.request("CUTOFF");
+  await b.desk.pay(w2.settlement_id, "USD");
+  assert.equal(r2.current_account.money.find((m) => m.ccy === "USD")!.cents, 0, "ödeme kaydı kapattı");
+  b.desk.onEvent("settlement.payment_received", { settlement_id: w2.settlement_id, ccy: "USD", closed_cents: -142_000_00 });
+  assert.equal(r2.current_account.money.find((m) => m.ccy === "USD")!.cents, 0, "olay ikinci kez uygulamaz");
+});
