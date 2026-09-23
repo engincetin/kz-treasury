@@ -46,6 +46,12 @@ export function scopeText(w: KzSettlement | null): string {
  * Altın bacağında sıra sabittir: rafineri borçluysa teklifini onaylarız ve kasa girişi talebi gider
  * (fiş gelince mint). Biz borçluysak önce token yakılır, sonra kasa çıkışı talebi gider.
  */
+/** Bacakta bu pencerede kapatılacak miktar; kısmi mahsuplaşmada tamamından küçük olur. */
+const wantGold = (gl: NonNullable<KzSettlement["gold_leg"]>) => gl.requested_mg ?? gl.qty_mg;
+const wantMoney = (m: KzSettlement["money_leg"][number]) => m.requested_cents ?? Math.abs(m.net_cents);
+const partGold = (gl: NonNullable<KzSettlement["gold_leg"]>) => (wantGold(gl) < gl.qty_mg ? ` · kısmi, tamamı ${g(gl.qty_mg)} g` : "");
+const partMoney = (m: KzSettlement["money_leg"][number]) => (wantMoney(m) < Math.abs(m.net_cents) ? ` · kısmi, tamamı ${money(Math.abs(m.net_cents))}` : "");
+
 export function legs(w: KzSettlement | null): Leg[] {
   if (!w) return [];
   const rec = reconciliation(w);
@@ -58,22 +64,22 @@ export function legs(w: KzSettlement | null): Leg[] {
     if (!gl || gl.direction === "NONE") {
       out.push({ key: "GOLD", label: "Altın", amount: "0,000 g", who: "gram farkı yok", state: "yok", note: "cari hesapta kapanacak gram yok", action: null });
     } else if (gl.done) {
-      out.push({ key: "GOLD", label: "Altın", amount: `${g(gl.qty_mg)} g`, who: gl.direction === "VAULT_IN" ? "rafineri borçluydu" : "Kanzasset borçluydu", state: "kapandı", note: `kasa talimatı kapandı${gl.vault_ref ? ` (${gl.vault_ref})` : ""}, T sıfırlandı`, action: null });
+      out.push({ key: "GOLD", label: "Altın", amount: `${g(wantGold(gl))} g`, who: gl.direction === "VAULT_IN" ? "rafineri borçluydu" : "Kanzasset borçluydu", state: "kapandı", note: `kasa talimatı kapandı${gl.vault_ref ? ` (${gl.vault_ref})` : ""}${partGold(gl) ? ", kalanı sonraki pencereye" : ", T sıfırlandı"}`, action: null });
     } else if (gl.direction === "VAULT_IN") {
       if (!gl.proposed_ts) {
-        out.push({ key: "GOLD", label: "Altın", amount: `${g(gl.qty_mg)} g`, who: "rafineri borçlu", state: "karşıda", note: "rafinerinin \"kasaya koyalım mı\" teklifi bekleniyor", action: null });
+        out.push({ key: "GOLD", label: "Altın", amount: `${g(wantGold(gl))} g`, who: "rafineri borçlu", state: "karşıda", note: "rafinerinin \"kasaya koyalım mı\" teklifi bekleniyor", action: null });
       } else if (!gl.approved_ts) {
-        out.push({ key: "GOLD", label: "Altın", amount: `${g(gl.qty_mg)} g`, who: "rafineri borçlu", state: ready ? "sizde" : "karşıda", note: "rafineri teklif etti: onaylayın, kasa girişi talebi gitsin. Fiş gelince mint edilir", action: ready ? "gold-approve" : null, actionLabel: "Onayla: kasaya konsun" });
+        out.push({ key: "GOLD", label: "Altın", amount: `${g(wantGold(gl))} g`, who: "rafineri borçlu", state: ready ? "sizde" : "karşıda", note: "rafineri teklif etti: onaylayın, kasa girişi talebi gitsin. Fiş gelince mint edilir" + partGold(gl), action: ready ? "gold-approve" : null, actionLabel: "Onayla: kasaya konsun" });
       } else if (!gl.vault_ref) {
-        out.push({ key: "GOLD", label: "Altın", amount: `${g(gl.qty_mg)} g`, who: "rafineri borçlu", state: "sizde", note: "onaylandı; kasa girişi talebi gönderilecek", action: "gold-send", actionLabel: "Kasa girişi talebi gönder" });
+        out.push({ key: "GOLD", label: "Altın", amount: `${g(wantGold(gl))} g`, who: "rafineri borçlu", state: "sizde", note: "onaylandı; kasa girişi talebi gönderilecek", action: "gold-send", actionLabel: "Kasa girişi talebi gönder" });
       } else {
-        out.push({ key: "GOLD", label: "Altın", amount: `${g(gl.qty_mg)} g`, who: "rafineri borçlu", state: "karşıda", note: `talep gönderildi (${gl.vault_ref}); rafinerinin kabulü ve Kasa Giriş Fişi bekleniyor, fiş gelince mint olur`, action: "gold-info", actionLabel: "K4 Kasa hesabı" });
+        out.push({ key: "GOLD", label: "Altın", amount: `${g(wantGold(gl))} g`, who: "rafineri borçlu", state: "karşıda", note: `talep gönderildi (${gl.vault_ref}); rafinerinin kabulü ve Kasa Giriş Fişi bekleniyor, fiş gelince mint olur`, action: "gold-info", actionLabel: "K4 Kasa hesabı" });
       }
     } else {
       if (!gl.vault_ref) {
-        out.push({ key: "GOLD", label: "Altın", amount: `${g(gl.qty_mg)} g`, who: "Kanzasset borçlu", state: ready ? "sizde" : "karşıda", note: "önce token yakılır, sonra kasa çıkışı talebi gider. Rafineri bizim talebimiz olmadan kasadan gram çıkaramaz", action: ready ? "gold-send" : null, actionLabel: "Yak ve kasa çıkışı talebi gönder" });
+        out.push({ key: "GOLD", label: "Altın", amount: `${g(wantGold(gl))} g`, who: "Kanzasset borçlu", state: ready ? "sizde" : "karşıda", note: "önce token yakılır, sonra kasa çıkışı talebi gider. Rafineri bizim talebimiz olmadan kasadan gram çıkaramaz", action: ready ? "gold-send" : null, actionLabel: "Yak ve kasa çıkışı talebi gönder" });
       } else {
-        out.push({ key: "GOLD", label: "Altın", amount: `${g(gl.qty_mg)} g`, who: "Kanzasset borçlu", state: "karşıda", note: `token yakıldı, talep gönderildi (${gl.vault_ref}); rafinerinin kabulü bekleniyor`, action: "gold-info", actionLabel: "K4 Kasa hesabı" });
+        out.push({ key: "GOLD", label: "Altın", amount: `${g(wantGold(gl))} g`, who: "Kanzasset borçlu", state: "karşıda", note: `token yakıldı, talep gönderildi (${gl.vault_ref}); rafinerinin kabulü bekleniyor`, action: "gold-info", actionLabel: "K4 Kasa hesabı" });
       }
     }
   }
@@ -84,13 +90,13 @@ export function legs(w: KzSettlement | null): Leg[] {
       continue;
     }
     if (m.paid) {
-      out.push({ key: m.ccy, label: m.ccy, amount: money(Math.abs(m.net_cents)), who: m.direction === "KZ_TO_AMR" ? "Kanzasset borçluydu" : "rafineri borçluydu", state: "kapandı", note: `ödeme kapandı${m.bank_ref ? ` · banka ref ${m.bank_ref}` : ""}`, action: null, ccy: m.ccy });
+      out.push({ key: m.ccy, label: m.ccy, amount: money(wantMoney(m)), who: m.direction === "KZ_TO_AMR" ? "Kanzasset borçluydu" : "rafineri borçluydu", state: "kapandı", note: `ödeme kapandı${m.bank_ref ? ` · banka ref ${m.bank_ref}` : ""}`, action: null, ccy: m.ccy });
       continue;
     }
     if (m.direction === "KZ_TO_AMR") {
-      out.push({ key: m.ccy, label: m.ccy, amount: money(Math.abs(m.net_cents)), who: "Kanzasset borçlu", state: ready ? "sizde" : "karşıda", note: ready ? "ödeme YALNIZ şirket banka hesabından yapılır (K5); ikinci onay ister" : "mutabakattan sonra ödenir", action: ready ? "pay" : null, actionLabel: "Öde (şirket hesabından)", ccy: m.ccy });
+      out.push({ key: m.ccy, label: m.ccy, amount: money(wantMoney(m)), who: "Kanzasset borçlu", state: ready ? "sizde" : "karşıda", note: (ready ? "ödeme YALNIZ şirket banka hesabından yapılır (K5); ikinci onay ister" : "mutabakattan sonra ödenir") + partMoney(m), action: ready ? "pay" : null, actionLabel: "Öde (şirket hesabından)", ccy: m.ccy });
     } else {
-      out.push({ key: m.ccy, label: m.ccy, amount: money(Math.abs(m.net_cents)), who: "rafineri borçlu", state: ready ? "sizde" : "karşıda", note: m.bank_ref ? `rafineri ödeme bildirdi (${m.bank_ref}); para geldiyse onaylayın` : "rafineri ödeyecek; para geldiğinde onaylayın", action: ready ? "pay" : null, actionLabel: "Ödeme alındı", ccy: m.ccy });
+      out.push({ key: m.ccy, label: m.ccy, amount: money(wantMoney(m)), who: "rafineri borçlu", state: ready ? "sizde" : "karşıda", note: m.bank_ref ? `rafineri ödeme bildirdi (${m.bank_ref}); para geldiyse onaylayın` : "rafineri ödeyecek; para geldiğinde onaylayın", action: ready ? "pay" : null, actionLabel: "Ödeme alındı", ccy: m.ccy });
     }
   }
   return out;

@@ -556,10 +556,10 @@ app.put<{ Body: Partial<FulfilmentParams> & Approvable }>("/api/fulfilment-param
 
 // ---- K8: mahsuplaşma ----
 app.get("/api/settlements", async () => ({ items: settlement.list(), open: settlement.open() ?? null, record: S.record }));
-app.post<{ Body: { reason?: string; trigger?: string; scope?: string[] } }>("/api/settlements", async (req, reply) => {
+app.post<{ Body: { reason?: string; trigger?: string; scope?: string[]; amounts?: unknown } }>("/api/settlements", async (req, reply) => {
   try {
     const scope = req.body?.scope?.length ? req.body.scope : undefined;
-    const w = await settlement.request(req.body?.trigger ?? "REQUEST_KZ", req.body?.reason?.trim(), scope);
+    const w = await settlement.request(req.body?.trigger ?? "REQUEST_KZ", req.body?.reason?.trim(), scope, req.body?.amounts);
     return logged(req, "settlement.request", `mahsuplaşma penceresi istendi${scope ? ` · kapsam ${scope.join(" + ")}` : ""}${req.body?.reason ? ": " + req.body.reason.trim() : ""}`, w);
   } catch (e) { return reply.code(502).send({ error: (e as Error).message }); }
 });

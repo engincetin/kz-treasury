@@ -27,8 +27,8 @@ export interface KzSettlement {
   kz_money?: { ccy: string; cents: number }[];
   diffs?: { field: string; amr: string; kz: string }[];
   scope?: string[];
-  gold_leg?: { direction: string; qty_mg: number; vault_ref?: string; done: boolean; proposed_ts?: string; approved_ts?: string };
-  money_leg: { ccy: string; net_cents: number; direction: string; paid: boolean; bank_ref?: string }[];
+  gold_leg?: { direction: string; qty_mg: number; requested_mg?: number; settled_mg?: number; vault_ref?: string; done: boolean; proposed_ts?: string; approved_ts?: string };
+  money_leg: { ccy: string; net_cents: number; requested_cents?: number; direction: string; paid: boolean; bank_ref?: string }[];
   doc_id?: string;
   created_ts: string;
   timeline: { ts: string; text: string }[];
@@ -57,8 +57,8 @@ export class KzSettlementDesk {
    * Mahsuplaşma talep et (K8) ya da rafinerinin açtığı pencereyi al.
    * Kapsam verilmezse bütün bacaklar (altın + üç kur) kapanır; gün içi talepte tek bacak seçilebilir.
    */
-  async request(trigger = "REQUEST_KZ", reason?: string, scope?: string[]): Promise<KzSettlement> {
-    const s = await this.d.amr.settlementOpen(trigger, reason, scope);
+  async request(trigger = "REQUEST_KZ", reason?: string, scope?: string[], amounts?: unknown): Promise<KzSettlement> {
+    const s = await this.d.amr.settlementOpen(trigger, reason, scope, amounts);
     return this.absorb(s, `pencere açıldı (${trigger})${scope?.length ? ` · kapsam ${scope.join(" + ")}` : ""}${reason ? ` · ${reason}` : ""}`);
   }
 
@@ -115,6 +115,8 @@ export class KzSettlementDesk {
     if (!w) throw new Error("pencere yok");
     const t = this.d.record().current_account.gold_mg;
     if (t > 0 && w.gold_leg?.proposed_ts && !w.gold_leg.approved_ts) throw new Error("rafinerinin altın teklifi önce onaylanmalı");
+    // kısmi mahsuplaşmada yalnız istenen miktar için talimat gider, kalanı cari hesapta durur
+    const want = Math.min(Math.abs(t), w.gold_leg?.requested_mg ?? Math.abs(t));
     if (t === 0) {
       w.gold_leg = { direction: "NONE", qty_mg: 0, done: true };
       this.log(w, "altın bacağı: T zaten sıfır, işlem yok");
@@ -122,10 +124,10 @@ export class KzSettlementDesk {
       return w;
     }
     const inst = t > 0
-      ? await this.d.vault().requestIn(t, "SETTLEMENT", { relatedId: id })
-      : await this.d.vault().requestOut(-t, "SETTLEMENT", { relatedId: id });
-    w.gold_leg = { direction: t > 0 ? "VAULT_IN" : "VAULT_OUT", qty_mg: Math.abs(t), vault_ref: inst.ref, done: false };
-    this.log(w, `altın bacağı: ${t > 0 ? "kasa girişi" : "burn + kasa çıkışı"} ${g(Math.abs(t))} g · ${inst.ref} · durum ${inst.status}`);
+      ? await this.d.vault().requestIn(want, "SETTLEMENT", { relatedId: id })
+      : await this.d.vault().requestOut(want, "SETTLEMENT", { relatedId: id });
+    w.gold_leg = { ...(w.gold_leg ?? {}), direction: t > 0 ? "VAULT_IN" : "VAULT_OUT", qty_mg: Math.abs(t), requested_mg: want, vault_ref: inst.ref, done: false };
+    this.log(w, `altın bacağı: ${t > 0 ? "kasa girişi" : "burn + kasa çıkışı"} ${g(want)} g${want < Math.abs(t) ? ` (kısmi; net ${g(Math.abs(t))} g)` : ""} · ${inst.ref} · durum ${inst.status}`);
     this.d.onChange();
     return w;
   }
@@ -152,18 +154,20 @@ export class KzSettlementDesk {
 
     if (leg.direction === "KZ_TO_AMR") {
       const bankRef = `TR-${randomUUID().slice(0, 8).toUpperCase()}`;
-      this.log(w, `ödeme talimatı: ŞİRKET banka hesabından rafineriye ${money(-leg.net_cents)} ${ccy} (K5: müşteri hesabı asla ödemez)`);
-      const s1 = await this.d.amr.settlementPaymentNotice(id, ccy, Math.abs(leg.net_cents), "KZ_TO_AMR", bankRef);
+      this.log(w, `ödeme talimatı: ŞİRKET banka hesabından rafineriye ${money(Math.min(Math.abs(leg.net_cents), leg.requested_cents ?? Math.abs(leg.net_cents)))} ${ccy} (K5: müşteri hesabı asla ödemez)`);
+      const amount = Math.min(Math.abs(leg.net_cents), leg.requested_cents ?? Math.abs(leg.net_cents));
+      const s1 = await this.d.amr.settlementPaymentNotice(id, ccy, amount, "KZ_TO_AMR", bankRef);
       this.absorb(s1, `ödeme bildirimi gönderildi · banka ref ${bankRef}`);
       const s2 = await this.d.amr.settlementPaymentReceived(id, ccy, bankRef);
-      applyFee(this.d.record(), ccy as any, leg.net_cents); // eksi borcu kapatır
+      applyFee(this.d.record(), ccy as any, -amount); // eksi borcu kapatır (applyFee çıkarır)
       this.log(w, `rafineri ödemeyi aldı · ${ccy} kapandı`);
       return this.absorb(s2, "ödeme kapandı");
     }
     // rafineri bize borçlu: ödeme alındı diyoruz
     const s = await this.d.amr.settlementPaymentReceived(id, ccy, leg.bank_ref);
-    applyFee(this.d.record(), ccy as any, leg.net_cents);
-    this.log(w, `rafineriden ödeme alındı: ${money(leg.net_cents)} ${ccy}`);
+    const got = Math.min(Math.abs(leg.net_cents), leg.requested_cents ?? Math.abs(leg.net_cents));
+    applyFee(this.d.record(), ccy as any, got); // artı alacağı kapatır
+    this.log(w, `rafineriden ödeme alındı: ${money(got)} ${ccy}`);
     return this.absorb(s, "ödeme alındı");
   }
 
@@ -205,7 +209,7 @@ export class KzSettlementDesk {
       if (this.windows.length > 200) this.windows.pop();
     }
     w.status = s.status;
-    w.money_leg = s.money_leg.map((m) => ({ ccy: m.ccy, net_cents: m.net_cents, direction: m.direction, paid: m.paid, bank_ref: m.bank_ref }));
+    w.money_leg = s.money_leg.map((m) => ({ ccy: m.ccy, net_cents: m.net_cents, requested_cents: m.requested_cents, direction: m.direction, paid: m.paid, bank_ref: m.bank_ref }));
     if (s.statement) { w.amr_gold_mg = s.statement.gold_mg; w.amr_money = s.statement.money.map((m) => ({ ccy: m.ccy, cents: m.cents })); }
     if (s.diffs) w.diffs = s.diffs;
     if (s.doc_id) w.doc_id = s.doc_id;
@@ -214,6 +218,8 @@ export class KzSettlementDesk {
       // birleştirilir, üzerine yazılmaz: geç gelen bir olay teklifi ya da onayı silmesin
       w.gold_leg = {
         direction: s.gold_leg.direction, qty_mg: s.gold_leg.qty_mg,
+        requested_mg: s.gold_leg.requested_mg ?? w.gold_leg?.requested_mg,
+        settled_mg: s.gold_leg.settled_mg ?? w.gold_leg?.settled_mg,
         vault_ref: w.gold_leg?.vault_ref, done: s.gold_leg.done || (w.gold_leg?.done ?? false),
         proposed_ts: s.gold_leg.proposed_ts ?? w.gold_leg?.proposed_ts,
         approved_ts: s.gold_leg.approved_ts ?? w.gold_leg?.approved_ts,

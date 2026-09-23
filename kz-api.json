@@ -1393,7 +1393,8 @@
         }
       },
       "post": {
-        "summary": "K8 pencere talebi (kapsam seçilebilir)",
+        "summary": "K8 pencere talebi (sihirbaz: kapsam ve tutar)",
+        "description": "scope hangi bacakların kapatılacağını, amounts her bacakta ne kadarının kapatılacağını söyler. İkisi de verilmezse bütün bacaklar tamamıyla kapatılır; kalan kısım cari hesapta durur.",
         "requestBody": {
           "content": {
             "application/json": {
@@ -1410,6 +1411,18 @@
                       "GOLD",
                       "USD"
                     ]
+                  },
+                  "amounts": {
+                    "type": "string",
+                    "description": {
+                      "gold_mg": 4000000,
+                      "money": [
+                        {
+                          "ccy": "USD",
+                          "cents": 50000000
+                        }
+                      ]
+                    }
                   },
                   "reason": {
                     "type": "string",

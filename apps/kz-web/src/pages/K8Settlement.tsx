@@ -3,16 +3,9 @@ import { Link } from "react-router-dom";
 import { needsApproval, api, fmtDT, fmtG, fmtMoney, STL_STATUS_TR, STL_TRIGGER_TR, type KzSettlement, type useLive } from "../api.ts";
 import { legs, reconciliation, scopeText, summary, type Leg } from "../settlementFlow.ts";
 import { ApprovalBox } from "../components/ApprovalBox.tsx";
+import { PositionBand, SettlementWizard, type Position, type WizardResult } from "../components/SettlementWizard.tsx";
 
 type Live = ReturnType<typeof useLive>;
-const LEG_CHOICES: { key: string; label: string; scope: string[] }[] = [
-  { key: "ALL", label: "Tümü (altın + üç kur)", scope: [] },
-  { key: "GOLD", label: "Yalnız altın", scope: ["GOLD"] },
-  { key: "MONEY", label: "Yalnız para (üç kur)", scope: ["USD", "EUR", "AED"] },
-  { key: "USD", label: "Yalnız USD", scope: ["USD"] },
-  { key: "EUR", label: "Yalnız EUR", scope: ["EUR"] },
-  { key: "AED", label: "Yalnız AED", scope: ["AED"] },
-];
 
 /**
  * K8 Mahsuplaşma (Akışlar 12) · rafineri tarafındaki R8'in karşılığı, aynı düzen.
@@ -26,8 +19,7 @@ export function K8Settlement({ live }: { live: Live }) {
   const [sel, setSel] = useState<KzSettlement | null>(null);
   const [msg, setMsg] = useState("");
   const [busy, setBusy] = useState("");
-  const [reason, setReason] = useState("");
-  const [scope, setScope] = useState("ALL");
+  const [wizard, setWizard] = useState(false);
   /** Kritik aksiyon 202 dönünce onay kutusu açılır; onaylanınca sunucu uygular. */
   const [pending, setPending] = useState<{ id: number; requestedBy: string; summary: string } | null>(null);
 
@@ -53,6 +45,14 @@ export function K8Settlement({ live }: { live: Live }) {
   const rec = reconciliation(w);
   const rows = legs(w);
   const record = live.status?.record;
+  /** Canlı KZ kaydı: sihirbaz ve durum şeridi bunu gösterir. */
+  const positions: Position[] = [
+    { key: "GOLD", label: "Altın", net: record?.current_account.gold_mg ?? 0, unit: "g", who: (record?.current_account.gold_mg ?? 0) > 0 ? "rafineri borçlu (kasaya konacak)" : (record?.current_account.gold_mg ?? 0) < 0 ? "Kanzasset borçlu (kasadan çıkacak)" : "kapalı" },
+    ...(["USD", "EUR", "AED"] as const).map((ccy) => {
+      const cents = record?.current_account.money.find((m) => m.ccy === ccy)?.cents ?? 0;
+      return { key: ccy, label: ccy, net: cents, unit: ccy, who: cents > 0 ? "rafineri borçlu" : cents < 0 ? "Kanzasset borçlu" : "kapalı" };
+    }),
+  ];
 
   return (
     <div>
@@ -68,13 +68,7 @@ export function K8Settlement({ live }: { live: Live }) {
         </div>
         <div className="sp" />
         {!w && (
-          <div className="row">
-            <select value={scope} onChange={(e) => setScope(e.target.value)}>
-              {LEG_CHOICES.map((c) => <option key={c.key} value={c.key}>{c.label}</option>)}
-            </select>
-            <input placeholder="gerekçe" value={reason} onChange={(e) => setReason(e.target.value)} style={{ minWidth: 180 }} />
-            <button className="primary" disabled={busy === "open"} onClick={() => act("open", () => api.settlementRequest(reason.trim() || "Kanzasset talebi", LEG_CHOICES.find((c) => c.key === scope)!.scope), "Pencere açıldı, rafineri ekstresi alınıyor.")}>Mahsuplaşma talep et</button>
-          </div>
+          <button className="primary" disabled={busy === "open"} onClick={() => setWizard(true)}>Mahsuplaşma başlat</button>
         )}
         {w && rec.canReconcile && (
           <button className="primary" disabled={busy === "rec"} onClick={() => act("rec", () => api.settlementReconcile(w.settlement_id), "Mutabakat çalıştırıldı.")}>{rec.state === "fark" ? "Yeniden karşılaştır" : "Rafineri ekstresini karşılaştır"}</button>
@@ -90,6 +84,17 @@ export function K8Settlement({ live }: { live: Live }) {
           <ApprovalBox id={pending.id} requestedBy={pending.requestedBy} summary={pending.summary}
             onDone={async (m) => { setPending(null); setMsg(m); await load(); live.refresh(); }} />
         </div>
+      )}
+
+      {/* ---- alacak verecek durumu: pencere olsun olmasın görünür ---- */}
+      <PositionBand positions={positions} note="Bu rakamlar KZ kaydının canlı hâlidir: mahsuplaşma bunları kapatır. Altın kasa talimatıyla (mint ya da burn ile birlikte), para şirket banka hesabından ödemeyle kapanır. Ayrıntı K5 Cari hesap ekranındadır." />
+
+      {wizard && (
+        <SettlementWizard
+          positions={positions} side="rafineri" busy={busy === "open"}
+          onClose={() => setWizard(false)}
+          onStart={(r: WizardResult) => { setWizard(false); void act("open", () => api.settlementRequest(r.reason || "Kanzasset talebi", r.scope, r.amounts), "Pencere açıldı, rafineri ekstresi alınıyor."); }}
+        />
       )}
 
       {/* ---- mutabakat ---- */}

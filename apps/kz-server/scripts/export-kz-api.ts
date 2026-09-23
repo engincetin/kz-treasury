@@ -73,7 +73,7 @@ const OPS: Record<string, Op> = {
   "PUT /api/fulfilment-params": { summary: "K6 burn anı parametresi", description: "DELIVERED (varsayılan) ya da SHIPPED.", body: { burnMoment: "DELIVERED ya da SHIPPED" }, approval: true },
 
   "GET /api/settlements": { summary: "K8 mahsuplaşma pencereleri" },
-  "POST /api/settlements": { summary: "K8 pencere talebi (kapsam seçilebilir)", body: { trigger: "REQUEST_KZ", scope: ["GOLD", "USD"], reason: "gerekçe" } },
+  "POST /api/settlements": { summary: "K8 pencere talebi (sihirbaz: kapsam ve tutar)", description: "scope hangi bacakların kapatılacağını, amounts her bacakta ne kadarının kapatılacağını söyler. İkisi de verilmezse bütün bacaklar tamamıyla kapatılır; kalan kısım cari hesapta durur.", body: { trigger: "REQUEST_KZ", scope: ["GOLD", "USD"], amounts: { gold_mg: 4000000, money: [{ ccy: "USD", cents: 50000000 }] }, reason: "gerekçe" } },
   "POST /api/settlements/:id/reconcile": { summary: "K8 mutabakat: rafineri ekstresini KZ kaydıyla karşılaştır", description: "eşitse ekstre onaylanır (RECONCILED), farklıysa kendi toplamlarımız gönderilir (MISMATCH)." },
   "POST /api/settlements/:id/gold/approve": { summary: "K8 rafinerinin altın teklifini onayla", description: "rafineri bize gram borçluyken kasaya konmasını onaylar; onaydan sonra kasa girişi talebi gider, fiş gelince mint olur." },
   "POST /api/settlements/:id/gold-leg": { summary: "K8 altın bacağını kasa talimatları masasına devret" },
