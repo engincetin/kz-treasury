@@ -394,8 +394,9 @@ async function main() {
     process.exit(1);
   }
   // iki defter baştan farklıysa mint bloke olur ve senaryolar teslimat adımında takılır:
-  // en sık sebep bir tarafı sıfırlayıp diğerini eski veriyle bırakmaktır
-  if (opening && opening.record.match !== "EŞİT") {
+  // en sık sebep bir tarafı sıfırlayıp diğerini eski veriyle bırakmaktır.
+  // BEKLİYOR sorun değildir: temiz kurulumda henüz karşılaştırma yapılmamıştır, ilk harekette yapılır.
+  if (opening && opening.record.match === "RECONCILE") {
     console.error(`\n\x1b[31mİki defter baştan farklı (${opening.record.match}).\x1b[0m KZ kaydı ile rafineri bakiye bilgisi tutmuyor: mint bloke olur, senaryolar teslimat adımında takılır.\n` +
       "İki tarafı birlikte sıfırlayın, önce ikisini de durdurup sonra silin:\n" +
       "  amr-app:     rm -f apps/amr-server/data/amr.db* && VAULT_OPENING_MG=20000000 npm run dev\n" +
