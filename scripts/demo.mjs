@@ -2,7 +2,8 @@
 /**
  * KZ simülatörü: S0'dan S9'a demo senaryoları (teslim paketi, Sprint 6).
  *
- * İki sunucu ayakta olmalı: rafineri (4000) ve Kanzasset (5000).
+ * İki sunucu ayakta olmalı: rafineri (4000) ve Kanzasset (5000). Başka portta çalışıyorlarsa AMR_URL / KZ_URL ile verilir
+ * (ör. KZ_URL=http://localhost:5050 npm run demo).
  *   npm run demo            tüm senaryolar, aralarında 3 sn
  *   npm run demo -- S3 S7   yalnız seçilenler
  *   DEMO_GAP_MS=1000 npm run demo   bekleme süresini değiştir
@@ -371,8 +372,16 @@ async function main() {
   console.log("\x1b[1mKanzasset ↔ AMR · demo senaryoları\x1b[0m");
   console.log(`rafineri ${AMR} · Kanzasset ${KZ} · adımlar arası ${GAP} ms${MANUAL ? " · elle mod" : ""}`);
 
-  try { await amr("/health"); await kz("/health"); }
-  catch { console.error("\n\x1b[31mSunuculara ulaşılamadı.\x1b[0m Önce iki tarafı başlatın:\n  amr-app:     npm run dev\n  kz-treasury: npm run dev\n"); process.exit(1); }
+  // hangi tarafa ulaşılamadığı ayrı ayrı söylenir: en sık sebep Kanzasset'in başka portta olmasıdır (PORT=5050)
+  const reach = async (name, url, fn, envVar) => {
+    try { await fn("/health"); return null; }
+    catch { return `  ${name.padEnd(10)} ${url} yanıt vermiyor · ${envVar}=<adres> ile değiştirebilirsiniz`; }
+  };
+  const down = (await Promise.all([reach("rafineri", AMR, amr, "AMR_URL"), reach("Kanzasset", KZ, kz, "KZ_URL")])).filter(Boolean);
+  if (down.length) {
+    console.error(`\n\x1b[31mSunuculara ulaşılamadı.\x1b[0m\n${down.join("\n")}\n\nÖnce iki tarafı başlatın:\n  amr-app:     npm run dev\n  kz-treasury: npm run dev   (başka portta ise: PORT=5050 npm run dev, demoyu KZ_URL=http://localhost:5050 npm run demo ile çalıştırın)\n`);
+    process.exit(1);
+  }
 
   for (const name of names) {
     const fn = SCENARIOS[name];
