@@ -16,9 +16,12 @@ export function K3Orders({ live }: { live: Live }) {
   const s = live.status;
   const [data, setData] = useState<{ items: CustomerOrder[]; unanswered: CustomerOrder[]; lateFills: CustomerOrder[] } | null>(null);
   const [sel, setSel] = useState<CustomerOrder | null>(null);
+  /** Dönem: bugün · son 7 gün · tümü · seçilen gün. Gün seçilince dönem "gun" olur. */
+  const [period, setPeriod] = useState<"bugun" | "7gun" | "tumu" | "gun">("bugun");
   const [day, setDay] = useState(today());
   const [sideF, setSideF] = useState("");
   const [statusF, setStatusF] = useState("");
+  const [search, setSearch] = useState("");
   const [side, setSide] = useState<"BUY" | "SELL">("BUY");
   const [grams, setGrams] = useState("70,104");
   const [ccy, setCcy] = useState<Ccy>("USD");
@@ -48,10 +51,15 @@ export function K3Orders({ live }: { live: Live }) {
   const all = data?.items ?? [];
   const todays = all.filter((o) => sameDay(o.ts, today()));
   const count = (st: string, sd?: string) => todays.filter((o) => o.status === st && (!sd || o.side === sd)).length;
-  const list = all.filter((o) => sameDay(o.ts, day) && (!sideF || o.side === sideF) && (!statusF || o.status === statusF));
+  const since = period === "7gun" ? Date.now() - 7 * 86_400_000 : 0;
+  const text = search.trim().toLowerCase();
+  const list = all.filter((o) =>
+    (period === "tumu" || period === "7gun" ? (!since || Date.parse(o.ts) >= since) : sameDay(o.ts, period === "bugun" ? today() : day)) &&
+    (!sideF || o.side === sideF) && (!statusF || o.status === statusF) &&
+    (!text || o.id.toLowerCase().includes(text) || (o.customer_ref ?? "").toLowerCase().includes(text) || (o.refinery?.allocation_certificate?.doc_id ?? "").toLowerCase().includes(text)));
   const filled = list.filter((o) => o.status === "FILLED");
   const sumMg = (sd: "BUY" | "SELL") => filled.filter((o) => o.side === sd).reduce((a, o) => a + o.qty_mg, 0);
-  const p = usePager(list, 20, `${day}|${sideF}|${statusF}`);
+  const p = usePager(list, 20, `${period}|${day}|${sideF}|${statusF}|${text}`);
   const waiting = (data?.unanswered.length ?? 0) + (data?.lateFills.length ?? 0);
 
   return (
@@ -68,12 +76,26 @@ export function K3Orders({ live }: { live: Live }) {
 
       <section className="card">
         <h2>Emir listesi</h2>
-        <div className="row" style={{ marginBottom: 10 }}>
-          <label className="small">Gün <input type="date" value={day} onChange={(e) => setDay(e.target.value)} /></label>
-          <label className="small">Yön <select value={sideF} onChange={(e) => setSideF(e.target.value)}><option value="">hepsi</option><option value="BUY">alış</option><option value="SELL">satış</option></select></label>
-          <label className="small">Durum <select value={statusF} onChange={(e) => setStatusF(e.target.value)}><option value="">hepsi</option><option value="FILLED">gerçekleşti</option><option value="REJECTED">reddedildi</option><option value="CANCELLED">iptal</option><option value="UNANSWERED">cevapsız</option><option value="LATE_FILL">geç fill</option><option value="SENT">gönderildi (bekliyor)</option></select></label>
-          <button className="ghost" onClick={() => { setDay(""); setSideF(""); setStatusF(""); }}>Temizle</button>
-          <span className="small" style={{ marginLeft: "auto" }}>{list.length} kayıt</span>
+        <div className="filters" style={{ marginBottom: 10 }}>
+          <div className="seg">
+            <button className={period === "bugun" ? "on" : ""} onClick={() => setPeriod("bugun")}>Bugün</button>
+            <button className={period === "7gun" ? "on" : ""} onClick={() => setPeriod("7gun")}>Son 7 gün</button>
+            <button className={period === "tumu" ? "on" : ""} onClick={() => setPeriod("tumu")}>Tümü</button>
+          </div>
+          <label>Gün <input type="date" value={day} onChange={(e) => { setDay(e.target.value); setPeriod(e.target.value ? "gun" : "tumu"); }} /></label>
+          <div className="seg">
+            <button className={sideF === "" ? "on" : ""} onClick={() => setSideF("")}>Hepsi</button>
+            <button className={sideF === "BUY" ? "on" : ""} onClick={() => setSideF("BUY")}>Alış</button>
+            <button className={sideF === "SELL" ? "on" : ""} onClick={() => setSideF("SELL")}>Satış</button>
+          </div>
+          <label>Durum
+            <select value={statusF} onChange={(e) => setStatusF(e.target.value)}>
+              <option value="">hepsi</option><option value="FILLED">gerçekleşti</option><option value="REJECTED">reddedildi</option><option value="CANCELLED">iptal</option><option value="UNANSWERED">cevapsız</option><option value="LATE_FILL">geç fill</option><option value="SENT">gönderildi (bekliyor)</option>
+            </select>
+          </label>
+          <input placeholder="emir, müşteri ya da belge no ara" value={search} onChange={(e) => setSearch(e.target.value)} style={{ minWidth: 180 }} />
+          <button className="ghost" onClick={() => { setPeriod("bugun"); setDay(today()); setSideF(""); setStatusF(""); setSearch(""); }}>Temizle</button>
+          <span className="small" style={{ marginLeft: "auto" }}>{list.length} kayıt{list.length !== all.length ? ` (${all.length} içinden)` : ""}</span>
         </div>
         <table>
           <thead><tr><th>Zaman</th><th>Müşteri emri no</th><th>Yön</th><th className="num">Gram</th><th>Kur</th><th className="num">Müşteri fiyatı</th><th className="num">Müşteri toplamı</th><th className="num">Gerçekleşme</th><th className="num">Marj</th><th>Akış</th><th>Rafineri</th><th>Müşteri</th><th>Eşleşme</th></tr></thead>

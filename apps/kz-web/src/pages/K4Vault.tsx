@@ -29,7 +29,7 @@ export function K4Vault({ live }: { live: Live }) {
 
   const capPct = v && v.placing_cap_mg > 0 ? v.committed_placing_mg / v.placing_cap_mg : 0;
 
-  const pItems = usePager(v?.items ?? [], 20);
+  const pItems = usePager(v?.items ?? [], 10);
   return (
     <div>
       <span className="tag">K4</span>
